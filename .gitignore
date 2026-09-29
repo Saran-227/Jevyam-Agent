@@ -1,0 +1,26 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Local data / drafts (Phase 1 local post storage)
+data/posts/*
+!data/posts/.gitkeep
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

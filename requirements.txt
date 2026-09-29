@@ -1,0 +1,9 @@
+google-genai
+python-dotenv
+supabase
+fastapi
+uvicorn
+pydantic
+httpx
+requests
+Pillow

@@ -1,0 +1,63 @@
+"""Database package for Supabase models, repositories, and connection management."""
+
+from database.models import (
+    Approval,
+    ApprovalStatus,
+    Company,
+    LinkedInTarget,
+    Post,
+    PostRevision,
+    PostStatus,
+    VALID_POST_TRANSITIONS,
+    validate_status_transition,
+)
+from database.repositories import (
+    BaseApprovalRepository,
+    BaseCompanyRepository,
+    BasePostRepository,
+    BaseRevisionRepository,
+    InMemoryApprovalRepository,
+    InMemoryCompanyRepository,
+    InMemoryPostRepository,
+    InMemoryRevisionRepository,
+    RepositoryManager,
+    SupabaseApprovalRepository,
+    SupabaseCompanyRepository,
+    SupabasePostRepository,
+    SupabaseRevisionRepository,
+    create_in_memory_repository_manager,
+    create_supabase_repository_manager,
+    get_repository_manager,
+)
+from database.supabase_client import get_supabase_client
+from database.tokens import generate_approval_token
+
+__all__ = [
+    "PostStatus",
+    "ApprovalStatus",
+    "LinkedInTarget",
+    "VALID_POST_TRANSITIONS",
+    "validate_status_transition",
+    "Company",
+    "Post",
+    "PostRevision",
+    "Approval",
+    "get_supabase_client",
+    "generate_approval_token",
+    "RepositoryManager",
+    "get_repository_manager",
+    "create_in_memory_repository_manager",
+    "create_supabase_repository_manager",
+    "BasePostRepository",
+    "BaseRevisionRepository",
+    "BaseApprovalRepository",
+    "BaseCompanyRepository",
+    "InMemoryPostRepository",
+    "SupabasePostRepository",
+    "InMemoryRevisionRepository",
+    "SupabaseRevisionRepository",
+    "InMemoryApprovalRepository",
+    "SupabaseApprovalRepository",
+    "InMemoryCompanyRepository",
+    "SupabaseCompanyRepository",
+]
