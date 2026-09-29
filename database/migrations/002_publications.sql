@@ -28,3 +28,6 @@ CREATE INDEX IF NOT EXISTS idx_publications_created_at ON publications(created_a
 ALTER TABLE publications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow full access to publications" ON publications;
 CREATE POLICY "Allow full access to publications" ON publications FOR ALL USING (true) WITH CHECK (true);
+
+-- Table Grants for Supabase anon / authenticated / service_role
+GRANT ALL ON TABLE publications TO anon, authenticated, service_role;

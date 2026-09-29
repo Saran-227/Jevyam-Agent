@@ -216,4 +216,13 @@ CREATE POLICY "Allow full access to approvals" ON approvals FOR ALL USING (true)
 DROP POLICY IF EXISTS "Allow full access to publications" ON publications;
 CREATE POLICY "Allow full access to publications" ON publications FOR ALL USING (true) WITH CHECK (true);
 
+-- ==============================================================================
+-- 9. PERMISSIONS / GRANTS
+-- Ensure anon, authenticated, and service_role have full access to public schema tables
+-- ==============================================================================
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
 
