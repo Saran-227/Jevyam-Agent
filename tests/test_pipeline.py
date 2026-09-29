@@ -61,6 +61,7 @@ def test_run_content_pipeline_success(mock_gemini_client, tmp_path: Path):
         client=mock_gemini_client,
         posts_dir=tmp_path,
         current_date="2026-09-29",
+        use_in_memory=True,
     )
 
     assert isinstance(draft, LinkedInDraft)
@@ -158,6 +159,7 @@ def test_pipeline_duplicate_detection_retry(tmp_path: Path):
         posts_dir=tmp_path,
         current_date="2026-09-29",
         max_retries=3,
+        use_in_memory=True,
     )
 
     assert draft.topic == "Evaluating Small Specialized Models vs General LLMs"
@@ -208,6 +210,7 @@ def test_pipeline_duplicate_fails_after_max_retries(tmp_path: Path):
             client=client,
             posts_dir=tmp_path,
             max_retries=3,
+            use_in_memory=True,
         )
 
     assert "Failed to generate a non-repetitive topic" in str(exc_info.value)
@@ -285,6 +288,7 @@ def test_regenerate_draft(tmp_path: Path):
         rejection_reason="Too generic; make it specifically about security and data governance in enterprise RAG.",
         client=client,
         posts_dir=tmp_path,
+        use_in_memory=True,
     )
 
     assert new_draft.post_id == initial_draft.post_id

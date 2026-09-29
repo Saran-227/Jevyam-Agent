@@ -3,7 +3,7 @@
 from typing import Optional
 from supabase import Client
 
-from agent.exceptions import MissingSupabaseCredentialsError
+from database.exceptions import MissingSupabaseCredentialsError
 from config.settings import settings
 from database.repositories.approvals import (
     BaseApprovalRepository,

@@ -22,7 +22,7 @@ def get_gemini_client(api_key: Optional[str] = None) -> genai.Client:
     Raises:
         MissingGeminiApiKeyError: If no API key is provided or found in settings.
     """
-    key = api_key or settings.GEMINI_API_KEY
+    key = settings.GEMINI_API_KEY if api_key is None else api_key
     if not key or not key.strip():
         raise MissingGeminiApiKeyError(
             "GEMINI_API_KEY is missing or empty. Please configure it in your .env file."

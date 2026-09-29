@@ -41,27 +41,41 @@ class ContentGenerationError(JevyamAgentError):
     pass
 
 
-class DatabaseError(JevyamAgentError):
-    """Base exception for database and persistence errors."""
+from database.exceptions import (
+    DatabaseError,
+    InvalidStatusTransitionError,
+    MissingSupabaseCredentialsError,
+    PostNotFoundError,
+    SupabaseDatabaseError,
+)
+
+
+class ApprovalError(JevyamAgentError):
+    """Base exception for approval workflows."""
     pass
 
 
-class MissingSupabaseCredentialsError(DatabaseError):
-    """Raised when SUPABASE_URL or SUPABASE_KEY is missing or invalid."""
+class ApprovalNotFoundError(ApprovalError):
+    """Raised when an approval token cannot be found."""
     pass
 
 
-class SupabaseDatabaseError(DatabaseError):
-    """Raised when an operation against Supabase fails."""
+class ApprovalExpiredError(ApprovalError):
+    """Raised when an approval token has passed its expiration time."""
     pass
 
 
-class PostNotFoundError(DatabaseError):
-    """Raised when a requested post is not found in database."""
+class ApprovalAlreadyProcessedError(ApprovalError):
+    """Raised when an approval token was already approved, rejected, or consumed."""
     pass
 
 
-class InvalidStatusTransitionError(JevyamAgentError):
-    """Raised when an illegal post lifecycle status transition is attempted."""
+class ApprovalSupersededError(ApprovalError):
+    """Raised when an approval token points to a superseded revision."""
+    pass
+
+
+class PostNotEligibleForApprovalError(ApprovalError):
+    """Raised when attempting to create an approval request for an ineligible post."""
     pass
 

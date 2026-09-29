@@ -1,6 +1,5 @@
-"""Base abstract repository interfaces for database access."""
-
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import List, Optional
 
 from database.models import (
@@ -84,13 +83,23 @@ class BaseApprovalRepository(ABC):
     """Abstract repository for approvals."""
 
     @abstractmethod
-    def create_approval_request(self, post_id: str, revision_number: int) -> Approval:
+    def create_approval_request(
+        self,
+        post_id: str,
+        revision_number: int,
+        expires_at: Optional[datetime] = None,
+    ) -> Approval:
         """Generate secure token and persist pending approval request."""
         pass
 
     @abstractmethod
     def get_by_token(self, approval_token: str) -> Optional[Approval]:
         """Fetch approval record by unique token."""
+        pass
+
+    @abstractmethod
+    def get_by_post_id(self, post_id: str) -> List[Approval]:
+        """Fetch all approval records associated with post_id."""
         pass
 
     @abstractmethod
@@ -102,3 +111,4 @@ class BaseApprovalRepository(ABC):
     ) -> Approval:
         """Update approval record status and audit timestamps."""
         pass
+

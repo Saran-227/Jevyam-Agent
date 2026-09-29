@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from supabase import Client
 
-from agent.exceptions import SupabaseDatabaseError
+from database.exceptions import SupabaseDatabaseError
 from database.models import PostRevision
 from database.repositories.base import BaseRevisionRepository
 

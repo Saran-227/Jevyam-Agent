@@ -3,7 +3,7 @@
 from typing import Optional
 from supabase import Client, create_client
 
-from agent.exceptions import (
+from database.exceptions import (
     MissingSupabaseCredentialsError,
     SupabaseDatabaseError,
 )
@@ -27,8 +27,8 @@ def get_supabase_client(
         MissingSupabaseCredentialsError: If URL or key is missing or unconfigured.
         SupabaseDatabaseError: If client instantiation fails.
     """
-    target_url = url or settings.SUPABASE_URL
-    target_key = key or settings.SUPABASE_KEY
+    target_url = settings.SUPABASE_URL if url is None else url
+    target_key = settings.SUPABASE_KEY if key is None else key
 
     if not target_url or not str(target_url).strip():
         raise MissingSupabaseCredentialsError(

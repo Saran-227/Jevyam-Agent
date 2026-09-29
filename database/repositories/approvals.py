@@ -1,11 +1,9 @@
-"""Approval repository implementations."""
-
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 from uuid import uuid4
 from supabase import Client
 
-from agent.exceptions import SupabaseDatabaseError
+from database.exceptions import SupabaseDatabaseError
 from database.models import Approval, ApprovalStatus
 from database.repositories.base import BaseApprovalRepository
 from database.tokens import generate_approval_token
@@ -17,15 +15,22 @@ class InMemoryApprovalRepository(BaseApprovalRepository):
     def __init__(self):
         self._approvals: Dict[str, Approval] = {}
 
-    def create_approval_request(self, post_id: str, revision_number: int) -> Approval:
+    def create_approval_request(
+        self,
+        post_id: str,
+        revision_number: int,
+        expires_at: Optional[datetime] = None,
+    ) -> Approval:
         token = generate_approval_token()
         now = datetime.now()
+        exp = expires_at or (now + timedelta(hours=24))
         approval = Approval(
             id=str(uuid4()),
             post_id=post_id,
             revision_number=revision_number,
             status=ApprovalStatus.PENDING,
             approval_token=token,
+            expires_at=exp,
             created_at=now,
         )
         self._approvals[token] = approval.model_copy(deep=True)
@@ -34,6 +39,17 @@ class InMemoryApprovalRepository(BaseApprovalRepository):
     def get_by_token(self, approval_token: str) -> Optional[Approval]:
         appr = self._approvals.get(approval_token)
         return appr.model_copy(deep=True) if appr else None
+
+    def get_by_post_id(self, post_id: str) -> list[Approval]:
+        return [
+            a.model_copy(deep=True)
+            for a in self._approvals.values()
+            if a.post_id == post_id
+        ]
+
+    def update(self, approval: Approval) -> Approval:
+        self._approvals[approval.approval_token] = approval.model_copy(deep=True)
+        return approval
 
     def update_status(
         self,
@@ -63,15 +79,22 @@ class SupabaseApprovalRepository(BaseApprovalRepository):
     def __init__(self, client: Client):
         self.client = client
 
-    def create_approval_request(self, post_id: str, revision_number: int) -> Approval:
+    def create_approval_request(
+        self,
+        post_id: str,
+        revision_number: int,
+        expires_at: Optional[datetime] = None,
+    ) -> Approval:
         token = generate_approval_token()
-        now_str = datetime.now().isoformat()
+        now = datetime.now()
+        exp = expires_at or (now + timedelta(hours=24))
         payload = {
             "post_id": post_id,
             "revision_number": revision_number,
             "status": ApprovalStatus.PENDING.value,
             "approval_token": token,
-            "created_at": now_str,
+            "expires_at": exp.isoformat(),
+            "created_at": now.isoformat(),
         }
         try:
             response = self.client.table("approvals").insert(payload).execute()
@@ -95,6 +118,36 @@ class SupabaseApprovalRepository(BaseApprovalRepository):
             return None
         except Exception as e:
             raise SupabaseDatabaseError(f"Failed to fetch approval for token '{approval_token}': {e}") from e
+
+    def get_by_post_id(self, post_id: str) -> list[Approval]:
+        try:
+            response = (
+                self.client.table("approvals")
+                .select("*")
+                .eq("post_id", post_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            if response.data:
+                return [Approval.model_validate(item) for item in response.data]
+            return []
+        except Exception as e:
+            raise SupabaseDatabaseError(f"Failed to fetch approvals for post '{post_id}': {e}") from e
+
+    def update(self, approval: Approval) -> Approval:
+        payload = approval.model_dump(mode="json")
+        try:
+            response = (
+                self.client.table("approvals")
+                .update(payload)
+                .eq("approval_token", approval.approval_token)
+                .execute()
+            )
+            if response.data and len(response.data) > 0:
+                return Approval.model_validate(response.data[0])
+            raise ValueError(f"Approval '{approval.approval_token}' was not updated.")
+        except Exception as e:
+            raise SupabaseDatabaseError(f"Failed to update approval '{approval.approval_token}': {e}") from e
 
     def update_status(
         self,

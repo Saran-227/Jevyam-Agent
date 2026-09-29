@@ -75,8 +75,8 @@ def test_api_error_wrapped():
 
 
 @pytest.mark.skipif(
-    not os.getenv("GEMINI_API_KEY"),
-    reason="Live Gemini API key not present in environment; skipping live test.",
+    os.getenv("RUN_LIVE_GEMINI_TESTS", "0") != "1",
+    reason="Live Gemini API test skipped unless RUN_LIVE_GEMINI_TESTS=1 is set.",
 )
 def test_live_gemini_api():
     """Live integration test: only executed when a valid GEMINI_API_KEY is available."""

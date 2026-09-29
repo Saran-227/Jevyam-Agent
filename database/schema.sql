@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     revision_number INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED')),
     approval_token TEXT UNIQUE NOT NULL,                  -- Secure random token (e.g. appr_...)
+    expires_at TIMESTAMPTZ,
     approved_at TIMESTAMPTZ,
     rejected_at TIMESTAMPTZ,
     rejection_reason TEXT,
@@ -162,3 +163,26 @@ CREATE INDEX IF NOT EXISTS idx_post_revisions_created_at ON post_revisions(creat
 CREATE INDEX IF NOT EXISTS idx_approvals_token ON approvals(approval_token);
 CREATE INDEX IF NOT EXISTS idx_approvals_post_id ON approvals(post_id);
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+
+
+-- ==============================================================================
+-- 7. ROW LEVEL SECURITY (RLS) POLICIES
+-- Enable RLS and establish backend service access policies
+-- ==============================================================================
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE post_revisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE approvals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow full access to companies" ON companies;
+CREATE POLICY "Allow full access to companies" ON companies FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow full access to posts" ON posts;
+CREATE POLICY "Allow full access to posts" ON posts FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow full access to post_revisions" ON post_revisions;
+CREATE POLICY "Allow full access to post_revisions" ON post_revisions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow full access to approvals" ON approvals;
+CREATE POLICY "Allow full access to approvals" ON approvals FOR ALL USING (true) WITH CHECK (true);
+

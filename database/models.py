@@ -5,8 +5,6 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Union
 from pydantic import BaseModel, Field, field_validator
 
-from agent.exceptions import InvalidStatusTransitionError
-from agent.image_generator import ImageBrief
 
 
 class PostStatus(str, Enum):
@@ -67,6 +65,8 @@ def validate_status_transition(current: Union[str, PostStatus], target: Union[st
 
     allowed = VALID_POST_TRANSITIONS.get(curr_enum, set())
     if target_enum not in allowed:
+        from agent.exceptions import InvalidStatusTransitionError
+
         allowed_names = [s.value for s in allowed] or ["None (Terminal State)"]
         raise InvalidStatusTransitionError(
             f"Cannot transition post status from '{curr_enum.value}' to '{target_enum.value}'. "
@@ -102,7 +102,7 @@ class Post(BaseModel):
     hashtags: List[str] = Field(default_factory=list)
     call_to_action: str
     visual_concept: str
-    image_brief: Union[ImageBrief, Dict[str, Any]]
+    image_brief: Union[Dict[str, Any], Any]
     image_url: Optional[str] = None
     linkedin_post_id: Optional[str] = None
     linkedin_target: LinkedInTarget = Field(default=LinkedInTarget.COMPANY_PAGE)
@@ -138,7 +138,7 @@ class PostRevision(BaseModel):
     hashtags: List[str] = Field(default_factory=list)
     call_to_action: str
     visual_concept: str
-    image_brief: Union[ImageBrief, Dict[str, Any]]
+    image_brief: Union[Dict[str, Any], Any]
     image_url: Optional[str] = None
     rejection_reason: Optional[str] = None
     created_at: Optional[Union[datetime, str]] = None
@@ -163,6 +163,7 @@ class Approval(BaseModel):
     revision_number: int = Field(..., ge=1)
     status: ApprovalStatus = Field(default=ApprovalStatus.PENDING)
     approval_token: str = Field(..., description="Cryptographically secure token")
+    expires_at: Optional[Union[datetime, str]] = None
     approved_at: Optional[Union[datetime, str]] = None
     rejected_at: Optional[Union[datetime, str]] = None
     rejection_reason: Optional[str] = None
