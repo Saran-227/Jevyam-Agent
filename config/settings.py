@@ -19,6 +19,8 @@ class Settings:
     AUTO_PUBLISH_ON_APPROVAL = os.getenv("AUTO_PUBLISH_ON_APPROVAL", "true").lower() in ("true", "1", "yes")
 
     APP_BASE_URL = os.getenv("APP_BASE_URL") or "http://127.0.0.1:8000"
+    APP_ENV = os.getenv("APP_ENV", "development")
+    DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes")
     APPROVAL_EXPIRATION_HOURS = int(os.getenv("APPROVAL_EXPIRATION_HOURS", "24"))
     API_HOST = os.getenv("API_HOST", "127.0.0.1")
     API_PORT = int(os.getenv("API_PORT", "8000"))

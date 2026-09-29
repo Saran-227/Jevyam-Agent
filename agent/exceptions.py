@@ -94,3 +94,13 @@ from integrations.linkedin.exceptions import (
 )
 
 
+class ConfigurationError(JevyamAgentError):
+    """Raised when application or environment configuration is invalid, missing, or lacks credentials for the requested mode."""
+    pass
+
+
+class DailyOrchestrationError(JevyamAgentError):
+    """Raised when daily scheduled agent orchestration fails."""
+    pass
+
+

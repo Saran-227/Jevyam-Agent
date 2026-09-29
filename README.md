@@ -129,4 +129,28 @@ pytest
 - [x] **Phase 3**: FastAPI founder approval web interface
 - [x] **Phase 4**: WhatsApp interactive approval notification layer
 - [x] **Phase 5**: LinkedIn publishing integration
+- [x] **Phase 6**: GitHub Actions daily orchestration & automation
+
+---
+
+## Phase 6 — Daily Automation & Orchestration
+
+The agent executes automatically every morning via GitHub Actions:
+- **Scheduled Time**: `03:30 UTC` (every day) $\rightarrow$ `09:00 AM IST` (Indian Standard Time)
+- **Workflow File**: `.github/workflows/daily-agent.yml`
+- **CI Test Suite**: `.github/workflows/tests.yml`
+
+### Run Locally:
+```bash
+# Offline dry run with simulated AI and in-memory DB:
+python scripts/daily_run.py --dry-run --mock-gemini --in-memory
+
+# Dry run with real local environment & Supabase:
+python scripts/daily_run.py --dry-run
+
+# Bypass daily idempotency check:
+python scripts/daily_run.py --dry-run --force
+```
+
+For complete documentation on GitHub Secrets, manual dispatch, and timezone schedules, see [`docs/github-actions.md`](docs/github-actions.md).
 
