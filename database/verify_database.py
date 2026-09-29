@@ -13,7 +13,7 @@ from database.exceptions import (
 )
 from database.supabase_client import get_supabase_client
 
-REQUIRED_TABLES = ["companies", "posts", "post_revisions", "approvals"]
+REQUIRED_TABLES = ["companies", "posts", "post_revisions", "approvals", "publications"]
 
 
 def verify_live_database() -> Tuple[bool, Dict[str, Dict[str, any]]]:

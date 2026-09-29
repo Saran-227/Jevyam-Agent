@@ -13,6 +13,7 @@ from database.repositories.approvals import (
 from database.repositories.base import (
     BaseCompanyRepository,
     BasePostRepository,
+    BasePublicationRepository,
     BaseRevisionRepository,
 )
 from database.repositories.companies import (
@@ -22,6 +23,10 @@ from database.repositories.companies import (
 from database.repositories.posts import (
     InMemoryPostRepository,
     SupabasePostRepository,
+)
+from database.repositories.publications import (
+    InMemoryPublicationRepository,
+    SupabasePublicationRepository,
 )
 from database.repositories.revisions import (
     InMemoryRevisionRepository,
@@ -39,12 +44,14 @@ class RepositoryManager:
         revisions: BaseRevisionRepository,
         approvals: BaseApprovalRepository,
         companies: BaseCompanyRepository,
+        publications: Optional[BasePublicationRepository] = None,
         is_in_memory: bool = False,
     ):
         self.posts = posts
         self.revisions = revisions
         self.approvals = approvals
         self.companies = companies
+        self.publications = publications or InMemoryPublicationRepository()
         self.is_in_memory = is_in_memory
 
 
@@ -55,6 +62,7 @@ def create_in_memory_repository_manager() -> RepositoryManager:
         revisions=InMemoryRevisionRepository(),
         approvals=InMemoryApprovalRepository(),
         companies=InMemoryCompanyRepository(),
+        publications=InMemoryPublicationRepository(),
         is_in_memory=True,
     )
 
@@ -66,6 +74,7 @@ def create_supabase_repository_manager(client: Client) -> RepositoryManager:
         revisions=SupabaseRevisionRepository(client=client),
         approvals=SupabaseApprovalRepository(client=client),
         companies=SupabaseCompanyRepository(client=client),
+        publications=SupabasePublicationRepository(client=client),
         is_in_memory=False,
     )
 
@@ -123,6 +132,7 @@ __all__ = [
     "BasePostRepository",
     "BaseRevisionRepository",
     "BaseApprovalRepository",
+    "BasePublicationRepository",
     "InMemoryCompanyRepository",
     "SupabaseCompanyRepository",
     "InMemoryPostRepository",
@@ -131,6 +141,8 @@ __all__ = [
     "SupabaseRevisionRepository",
     "InMemoryApprovalRepository",
     "SupabaseApprovalRepository",
+    "InMemoryPublicationRepository",
+    "SupabasePublicationRepository",
     "RepositoryManager",
     "create_in_memory_repository_manager",
     "create_supabase_repository_manager",

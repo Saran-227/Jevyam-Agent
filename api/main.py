@@ -5,7 +5,13 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.routes import approval_router, dev_router, health_router, whatsapp_router
+from api.routes import (
+    approval_router,
+    dev_router,
+    health_router,
+    publishing_router,
+    whatsapp_router,
+)
 from config.settings import settings
 
 
@@ -36,6 +42,7 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(approval_router)
 app.include_router(whatsapp_router)
+app.include_router(publishing_router)
 app.include_router(dev_router)
 
 

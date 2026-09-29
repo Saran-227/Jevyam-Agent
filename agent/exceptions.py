@@ -79,3 +79,18 @@ class PostNotEligibleForApprovalError(ApprovalError):
     """Raised when attempting to create an approval request for an ineligible post."""
     pass
 
+
+from integrations.linkedin.exceptions import (
+    LinkedInAPIError,
+    LinkedInAuthError,
+    LinkedInDuplicatePostError,
+    LinkedInError,
+    LinkedInNetworkError,
+    LinkedInPermissionError,
+    LinkedInRateLimitError,
+    LinkedInValidationError,
+    MissingLinkedInCredentialsError,
+    PostNotApprovedError,
+)
+
+

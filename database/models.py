@@ -168,3 +168,27 @@ class Approval(BaseModel):
     rejected_at: Optional[Union[datetime, str]] = None
     rejection_reason: Optional[str] = None
     created_at: Optional[Union[datetime, str]] = None
+
+
+class PublicationStatus(str, Enum):
+    """Workflow states for post publication dispatches."""
+
+    PENDING = "PENDING"
+    PUBLISHED = "PUBLISHED"
+    FAILED = "FAILED"
+
+
+class Publication(BaseModel):
+    """Publication audit record."""
+
+    id: Optional[str] = None
+    post_id: str = Field(..., description="Reference to parent post_id")
+    revision_number: int = Field(..., ge=1)
+    platform: str = Field(default="LINKEDIN")
+    status: PublicationStatus = Field(default=PublicationStatus.PENDING)
+    external_post_id: Optional[str] = None
+    target_urn: Optional[str] = None
+    error_message: Optional[str] = None
+    published_at: Optional[Union[datetime, str]] = None
+    created_at: Optional[Union[datetime, str]] = None
+

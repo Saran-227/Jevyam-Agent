@@ -9,6 +9,8 @@ from database.models import (
     Post,
     PostRevision,
     PostStatus,
+    Publication,
+    PublicationStatus,
 )
 
 
@@ -111,4 +113,36 @@ class BaseApprovalRepository(ABC):
     ) -> Approval:
         """Update approval record status and audit timestamps."""
         pass
+
+
+class BasePublicationRepository(ABC):
+    """Abstract repository for publications."""
+
+    @abstractmethod
+    def create(self, publication: "Publication") -> "Publication":
+        """Persist a publication audit record."""
+        pass
+
+    @abstractmethod
+    def get_by_post_id(self, post_id: str) -> List["Publication"]:
+        """Fetch all publication records for a post."""
+        pass
+
+    @abstractmethod
+    def get_latest_by_post_id(self, post_id: str) -> Optional["Publication"]:
+        """Fetch most recent publication record for a post."""
+        pass
+
+    @abstractmethod
+    def update_status(
+        self,
+        publication_id: str,
+        status: "PublicationStatus",
+        external_post_id: Optional[str] = None,
+        error_message: Optional[str] = None,
+        published_at: Optional[datetime] = None,
+    ) -> "Publication":
+        """Update publication status and external ID."""
+        pass
+
 

@@ -1,7 +1,7 @@
 """Approval business logic service layer."""
 
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from google import genai
 
 from agent.exceptions import (
@@ -37,9 +37,11 @@ class ApprovalService:
         self,
         repo_manager: Optional[RepositoryManager] = None,
         gemini_client: Optional[genai.Client] = None,
+        publishing_service: Optional[Any] = None,
     ):
         self.repos = repo_manager or get_repository_manager()
         self.gemini_client = gemini_client
+        self.publishing_service = publishing_service
 
     def create_approval_request(
         self,
@@ -194,8 +196,12 @@ class ApprovalService:
             expires_at=str(approval.expires_at) if approval.expires_at else None,
         )
 
-    def approve_post(self, token: str) -> ApprovalActionResponse:
-        """Approve post and consume token."""
+    def approve_post(
+        self,
+        token: str,
+        auto_publish: Optional[bool] = None,
+    ) -> ApprovalActionResponse:
+        """Approve post, consume token, and dispatch to LinkedIn."""
         approval, post, _ = self.validate_and_get_approval(token)
 
         # 1. Invalidate current approval token
@@ -204,11 +210,40 @@ class ApprovalService:
         # 2. Transition post to APPROVED
         updated_post = self.repos.posts.update_status(post.post_id, PostStatus.APPROVED)
 
+        # 3. Publish to LinkedIn if enabled
+        should_publish = auto_publish if auto_publish is not None else settings.AUTO_PUBLISH_ON_APPROVAL
+        pub_service = self.publishing_service
+        if pub_service is None and should_publish and settings.LINKEDIN_ACCESS_TOKEN and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_"):
+            try:
+                from api.services.publishing_service import PublishingService
+                pub_service = PublishingService(repo_manager=self.repos)
+            except Exception:
+                pub_service = None
+
+        published_flag = None
+        ext_post_id = None
+        post_url = None
+        msg = "Post approved successfully."
+
+        if should_publish and pub_service:
+            try:
+                pub_result = pub_service.publish_approved_post(updated_post.post_id)
+                published_flag = True
+                ext_post_id = pub_result.get("external_post_id")
+                post_url = pub_result.get("post_url")
+                msg = "Post approved and published to LinkedIn Company Page."
+            except Exception as e:
+                published_flag = False
+                msg = f"Post approved, but LinkedIn publishing failed: {str(e)}"
+
         return ApprovalActionResponse(
             status="approved",
             post_id=updated_post.post_id,
             revision=updated_post.current_revision,
-            message="Post approved successfully.",
+            message=msg,
+            published=published_flag,
+            external_post_id=ext_post_id,
+            post_url=post_url,
         )
 
     def reject_and_regenerate(

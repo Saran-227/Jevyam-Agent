@@ -20,3 +20,12 @@ def get_whatsapp_service() -> "WhatsAppService":
     provider = get_whatsapp_provider()
     return WhatsAppService(approval_service=approval_service, provider=provider)
 
+
+def get_publishing_service() -> "PublishingService":
+    """Dependency provider for PublishingService."""
+    from api.services.publishing_service import PublishingService
+
+    repos = get_repository_manager()
+    return PublishingService(repo_manager=repos)
+
+

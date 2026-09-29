@@ -87,9 +87,33 @@ In your Meta Developer Console, set the Webhook Callback URL to:
 
 ---
 
+---
+
+## Phase 5 — LinkedIn Publishing Setup
+
+### Configure LinkedIn Credentials
+Set your LinkedIn Developer application credentials in `.env`:
+
+```env
+# LinkedIn API (Phase 5 — Company Page Publishing)
+LINKEDIN_CLIENT_ID=your_linkedin_client_id_here
+LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret_here
+LINKEDIN_ACCESS_TOKEN=your_linkedin_access_token_here
+LINKEDIN_ORGANIZATION_ID=12345678
+AUTO_PUBLISH_ON_APPROVAL=true
+```
+
+When `AUTO_PUBLISH_ON_APPROVAL=true`, approving a post via the Web approval interface or WhatsApp interactive button immediately publishes the post to the **Jevyam Technologies** LinkedIn Company Page.
+
+Endpoints active:
+- `POST /posts/{post_id}/publish` — Manually publish or retry an approved post
+- `GET /posts/{post_id}/publications` — Fetch publication audit records
+
+---
+
 ## Running Tests
 
-All unit tests use mock HTTP clients and in-memory repositories. No real WhatsApp messages are dispatched during automated tests:
+All unit tests use mock HTTP clients and in-memory repositories. No real external API calls (WhatsApp, LinkedIn, Gemini) are dispatched during automated tests:
 
 ```bash
 pytest
@@ -104,4 +128,5 @@ pytest
 - [x] **Phase 2**: Supabase database layer & persistent post state
 - [x] **Phase 3**: FastAPI founder approval web interface
 - [x] **Phase 4**: WhatsApp interactive approval notification layer
-- [ ] **Phase 5**: LinkedIn publishing integration
+- [x] **Phase 5**: LinkedIn publishing integration
+

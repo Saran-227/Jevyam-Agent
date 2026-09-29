@@ -35,6 +35,32 @@ class ApprovalActionResponse(BaseModel):
         default=None,
         description="New approval URL if post was regenerated",
     )
+    published: Optional[bool] = Field(
+        default=None,
+        description="Whether the approved post was published to LinkedIn",
+    )
+    external_post_id: Optional[str] = Field(
+        default=None,
+        description="External LinkedIn post URN if published",
+    )
+    post_url: Optional[str] = Field(
+        default=None,
+        description="Public LinkedIn permalink if published",
+    )
+
+
+class PublishResponse(BaseModel):
+    """Response returned upon publishing an approved post to LinkedIn."""
+
+    status: str = Field(..., description="Outcome: published, failed")
+    post_id: str = Field(..., description="Target post ID")
+    revision: int = Field(..., description="Revision number published")
+    external_post_id: Optional[str] = Field(default=None, description="LinkedIn post URN")
+    post_url: Optional[str] = Field(default=None, description="LinkedIn post URL")
+    published_at: Optional[str] = Field(default=None, description="Publication timestamp")
+    is_duplicate: bool = Field(default=False, description="Whether this was an idempotent return of an already-published post")
+    message: Optional[str] = Field(default=None, description="Descriptive message")
+
 
 
 class CreateApprovalResponse(BaseModel):
