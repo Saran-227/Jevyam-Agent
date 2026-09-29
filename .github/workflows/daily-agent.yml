@@ -49,7 +49,7 @@ jobs:
         env:
           # AI & Content Generation
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
 
           # Database & Persistence (Supabase)
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

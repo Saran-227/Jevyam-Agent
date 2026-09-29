@@ -9,7 +9,7 @@ An autonomous AI marketing agent that generates technical, brand-aligned LinkedI
 ```
 Daily Trigger (Cron)
        ↓
-Content Strategist & Writer (Gemini 2.5 Flash SDK)
+Content Strategist & Writer (Gemini 3.8 Flash SDK)
        ↓
 Post Draft + Image Brief Persisted to Supabase (DRAFT / PENDING_APPROVAL)
        ↓

@@ -15,11 +15,53 @@ from integrations.gemini import (
     generate_structured_content,
     get_gemini_client,
 )
+from config.settings import settings
 
 
 class SampleSchema(BaseModel):
     title: str
     score: int
+
+
+def test_default_gemini_model_is_gemini_3_8_flash():
+    """Verify that the default configured Gemini model is gemini-3.8-flash."""
+    assert settings.GEMINI_MODEL == "gemini-3.8-flash"
+
+
+def test_generate_structured_content_uses_default_gemini_model():
+    """Verify generate_structured_content invokes client with the default gemini-3.8-flash model."""
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = '{"title": "Test Title", "score": 42}'
+    mock_client.models.generate_content.return_value = mock_resp
+
+    generate_structured_content(
+        client=mock_client,
+        prompt="Test Prompt",
+        schema=SampleSchema,
+    )
+
+    mock_client.models.generate_content.assert_called_once()
+    _, kwargs = mock_client.models.generate_content.call_args
+    assert kwargs.get("model") == "gemini-3.8-flash"
+
+
+def test_generate_structured_content_respects_custom_model_override():
+    """Verify that an explicit model argument overrides the default model."""
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = '{"title": "Custom Model", "score": 99}'
+    mock_client.models.generate_content.return_value = mock_resp
+
+    generate_structured_content(
+        client=mock_client,
+        prompt="Test Prompt",
+        schema=SampleSchema,
+        model="custom-gemini-model",
+    )
+
+    _, kwargs = mock_client.models.generate_content.call_args
+    assert kwargs.get("model") == "custom-gemini-model"
 
 
 def test_missing_api_key_raises_error(monkeypatch):

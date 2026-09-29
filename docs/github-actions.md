@@ -90,7 +90,7 @@ Navigate to:
 
 ### Repository Variables (Settings $\rightarrow$ Variables):
 - `APP_BASE_URL`: Public base URL for founder approval links (e.g. `https://agent.jevyam.com` or local tunnel). Default: `http://localhost:8000`.
-- `GEMINI_MODEL`: Gemini model version (default: `gemini-2.5-flash`).
+- `GEMINI_MODEL`: Gemini model version (default: `gemini-3.8-flash`).
 
 ---
 

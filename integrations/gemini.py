@@ -30,6 +30,25 @@ def get_gemini_client(api_key: Optional[str] = None) -> genai.Client:
     return genai.Client(api_key=key.strip())
 
 
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 5
+BASE_BACKOFF = 4.0
+
+
+def _is_transient_error(e: Exception) -> bool:
+    if isinstance(e, APIError):
+        err_str = str(e).upper()
+        return any(
+            kw in err_str
+            for kw in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "HIGH DEMAND")
+        )
+    return False
+
+
 def generate_structured_content(
     client: genai.Client,
     prompt: str,
@@ -60,16 +79,27 @@ def generate_structured_content(
         system_instruction=system_instruction,
     )
 
-    try:
-        response = client.models.generate_content(
-            model=chosen_model,
-            contents=prompt,
-            config=config,
-        )
-    except APIError as e:
-        raise GeminiAPIError(f"Gemini API error during generation: {e}") from e
-    except Exception as e:
-        raise GeminiAPIError(f"Unexpected error communicating with Gemini: {e}") from e
+    response = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.models.generate_content(
+                model=chosen_model,
+                contents=prompt,
+                config=config,
+            )
+            break
+        except Exception as e:
+            if attempt < MAX_RETRIES and _is_transient_error(e):
+                backoff = BASE_BACKOFF * (2 ** (attempt - 1))
+                logger.warning(
+                    f"Gemini API transient issue on attempt {attempt}/{MAX_RETRIES} ({e}). "
+                    f"Retrying in {backoff:.1f}s..."
+                )
+                time.sleep(backoff)
+            else:
+                if isinstance(e, APIError):
+                    raise GeminiAPIError(f"Gemini API error during generation: {e}") from e
+                raise GeminiAPIError(f"Unexpected error communicating with Gemini: {e}") from e
 
     if not response or not response.text:
         raise InvalidGeminiResponseError("Gemini returned an empty response.")
@@ -105,16 +135,27 @@ def generate_text(
         else None
     )
 
-    try:
-        response = client.models.generate_content(
-            model=chosen_model,
-            contents=prompt,
-            config=config,
-        )
-    except APIError as e:
-        raise GeminiAPIError(f"Gemini API error: {e}") from e
-    except Exception as e:
-        raise GeminiAPIError(f"Unexpected error communicating with Gemini: {e}") from e
+    response = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.models.generate_content(
+                model=chosen_model,
+                contents=prompt,
+                config=config,
+            )
+            break
+        except Exception as e:
+            if attempt < MAX_RETRIES and _is_transient_error(e):
+                backoff = BASE_BACKOFF * (2 ** (attempt - 1))
+                logger.warning(
+                    f"Gemini API transient issue on attempt {attempt}/{MAX_RETRIES} ({e}). "
+                    f"Retrying in {backoff:.1f}s..."
+                )
+                time.sleep(backoff)
+            else:
+                if isinstance(e, APIError):
+                    raise GeminiAPIError(f"Gemini API error: {e}") from e
+                raise GeminiAPIError(f"Unexpected error communicating with Gemini: {e}") from e
 
     if not response or not response.text:
         raise InvalidGeminiResponseError("Gemini returned an empty response.")

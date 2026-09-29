@@ -301,7 +301,7 @@ def test_failure_propagation_on_pipeline_error(tmp_path):
     """Verify DailyOrchestrationError is raised when content pipeline fails."""
     repos = create_test_repo_manager()
     broken_gemini = MagicMock()
-    broken_gemini.models.generate_content.side_effect = RuntimeError("Gemini 503 Overloaded")
+    broken_gemini.models.generate_content.side_effect = RuntimeError("Fatal Gemini API failure")
 
     orchestrator = DailyOrchestrator(
         repo_manager=repos,

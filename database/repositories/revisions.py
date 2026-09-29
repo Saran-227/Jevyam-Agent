@@ -12,9 +12,9 @@ from database.repositories.base import BaseRevisionRepository
 
 def serialize_revision_for_db(revision: PostRevision) -> Dict[str, Any]:
     """Serialize PostRevision Pydantic model for database persistence."""
-    data = revision.model_dump(exclude_none=True)
+    data = revision.model_dump(mode="json", exclude_none=True)
     if hasattr(revision.image_brief, "model_dump"):
-        data["image_brief"] = revision.image_brief.model_dump()
+        data["image_brief"] = revision.image_brief.model_dump(mode="json")
     return data
 
 

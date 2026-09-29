@@ -20,7 +20,7 @@ from database.repositories.base import BasePostRepository
 
 def serialize_post_for_db(post: Post) -> Dict[str, Any]:
     """Serialize Post Pydantic model into a clean dictionary suitable for Supabase."""
-    data = post.model_dump(exclude_none=True)
+    data = post.model_dump(mode="json", exclude_none=True)
     if isinstance(data.get("status"), PostStatus):
         data["status"] = data["status"].value
     if hasattr(post.status, "value"):
@@ -28,7 +28,7 @@ def serialize_post_for_db(post: Post) -> Dict[str, Any]:
     if hasattr(post.linkedin_target, "value"):
         data["linkedin_target"] = post.linkedin_target.value
     if hasattr(post.image_brief, "model_dump"):
-        data["image_brief"] = post.image_brief.model_dump()
+        data["image_brief"] = post.image_brief.model_dump(mode="json")
     return data
 
 
