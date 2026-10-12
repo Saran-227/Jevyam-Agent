@@ -5,12 +5,22 @@ from agent.exceptions import (
     ContentGenerationError,
     DuplicateContentError,
     GeminiAPIError,
+    GeminiAuthError,
+    GeminiNetworkError,
+    GeminiRateLimitError,
+    GeminiUnavailableError,
     InvalidGeminiResponseError,
     JevyamAgentError,
     MissingGeminiApiKeyError,
     MissingKnowledgeFileError,
 )
-from agent.image_generator import BaseImageProvider, ImageBrief, generate_image_brief
+from agent.image_generator import (
+    BaseImageProvider,
+    GeminiImageProvider,
+    ImageBrief,
+    MockImageProvider,
+    generate_image_brief,
+)
 from agent.knowledge import CompanyKnowledge, load_company_knowledge
 from agent.pipeline import (
     LinkedInDraft,
@@ -46,6 +56,10 @@ __all__ = [
     "CompanyKnowledgeError",
     "MissingKnowledgeFileError",
     "GeminiAPIError",
+    "GeminiAuthError",
+    "GeminiNetworkError",
+    "GeminiRateLimitError",
+    "GeminiUnavailableError",
     "InvalidGeminiResponseError",
     "DuplicateContentError",
     "ContentGenerationError",

@@ -10,6 +10,7 @@ from api.routes import (
     dev_router,
     health_router,
     publishing_router,
+    telegram_router,
     whatsapp_router,
 )
 from config.settings import settings
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     print(f"API Server initialized on: http://{host}:{port}")
     print(f"Base Approval URL: {base_url}")
     print(f"Health Check: http://{host}:{port}/health")
+    print(f"Telegram Webhook: http://{host}:{port}/telegram/webhook")
     print(f"WhatsApp Webhook: http://{host}:{port}/webhook/whatsapp")
     print("=" * 60)
     yield
@@ -41,9 +43,11 @@ app = FastAPI(
 # Register Route Handlers
 app.include_router(health_router)
 app.include_router(approval_router)
+app.include_router(telegram_router)
 app.include_router(whatsapp_router)
 app.include_router(publishing_router)
 app.include_router(dev_router)
+
 
 
 # Global Safe Exception Handler

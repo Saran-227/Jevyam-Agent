@@ -52,4 +52,6 @@ class LinkedInPublisher:
         """
         formatted_text = self.format_post_text(post, revision)
         image_url = (revision.image_url if revision else post.image_url) or post.image_url
-        return self.client.publish_text_post(text=formatted_text, image_url=image_url)
+        if image_url:
+            return self.client.publish_image_post(text=formatted_text, image_url=image_url)
+        return self.client.publish_text_post(text=formatted_text)

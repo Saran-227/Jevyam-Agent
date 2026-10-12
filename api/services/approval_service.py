@@ -8,11 +8,13 @@ from agent.exceptions import (
     ApprovalAlreadyProcessedError,
     ApprovalError,
     ApprovalExpiredError,
+    ApprovalInProgressError,
     ApprovalNotFoundError,
     ApprovalSupersededError,
     PostNotEligibleForApprovalError,
     PostNotFoundError,
 )
+from agent.image_generator import BaseImageProvider
 from agent.pipeline import regenerate_draft
 from api.schemas import (
     ApprovalActionResponse,
@@ -38,10 +40,12 @@ class ApprovalService:
         repo_manager: Optional[RepositoryManager] = None,
         gemini_client: Optional[genai.Client] = None,
         publishing_service: Optional[Any] = None,
+        image_provider: Optional[BaseImageProvider] = None,
     ):
         self.repos = repo_manager or get_repository_manager()
         self.gemini_client = gemini_client
         self.publishing_service = publishing_service
+        self.image_provider = image_provider
 
     def create_approval_request(
         self,
@@ -136,6 +140,12 @@ class ApprovalService:
         if not post:
             raise PostNotFoundError(f"Associated post '{approval.post_id}' could not be found.")
 
+        # In-progress regeneration check
+        if post.status == PostStatus.REGENERATING:
+            raise ApprovalInProgressError(
+                f"Post '{post.post_id}' is currently being regenerated."
+            )
+
         # Revision currency check
         if approval.revision_number != post.current_revision:
             raise ApprovalSupersededError(
@@ -213,12 +223,22 @@ class ApprovalService:
         # 3. Publish to LinkedIn if enabled
         should_publish = auto_publish if auto_publish is not None else settings.AUTO_PUBLISH_ON_APPROVAL
         pub_service = self.publishing_service
-        if pub_service is None and should_publish and settings.LINKEDIN_ACCESS_TOKEN and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_"):
-            try:
-                from api.services.publishing_service import PublishingService
-                pub_service = PublishingService(repo_manager=self.repos)
-            except Exception:
-                pub_service = None
+        has_credentials = bool(
+            settings.LINKEDIN_ACCESS_TOKEN
+            and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
+        )
+        is_mock_publishing = settings.LINKEDIN_MOCK_PUBLISHING or (settings.DRY_RUN and has_credentials)
+
+        if pub_service is None and should_publish:
+            if settings.LINKEDIN_MOCK_PUBLISHING or has_credentials:
+                try:
+                    from api.services.publishing_service import PublishingService
+                    pub_service = PublishingService(
+                        repo_manager=self.repos,
+                        mock_mode=is_mock_publishing,
+                    )
+                except Exception:
+                    pub_service = None
 
         published_flag = None
         ext_post_id = None
@@ -231,7 +251,11 @@ class ApprovalService:
                 published_flag = True
                 ext_post_id = pub_result.get("external_post_id")
                 post_url = pub_result.get("post_url")
-                msg = "Post approved and published to LinkedIn Company Page."
+                msg = pub_result.get("message") or (
+                    "Post approved and published to LinkedIn Company Page."
+                    if not getattr(pub_service, "mock_mode", False)
+                    else "Post approved and simulated publication to LinkedIn Company Page (Mock Mode)."
+                )
             except Exception as e:
                 published_flag = False
                 msg = f"Post approved, but LinkedIn publishing failed: {str(e)}"
@@ -251,38 +275,51 @@ class ApprovalService:
         token: str,
         reason: Optional[str] = None,
     ) -> ApprovalActionResponse:
-        """Reject current revision and trigger generation of new revision."""
+        """Reject current revision and trigger generation of new revision.
+
+        Guarantees idempotency and safe recovery:
+        - If regeneration fails (e.g. Gemini 503 or quota limits), the approval token
+          remains unconsumed (PENDING) and post status is restored to its prior state.
+        - The token is only marked REJECTED after new revision generation succeeds.
+        """
         approval, post, _ = self.validate_and_get_approval(token)
 
-        # 1. Invalidate current approval token as REJECTED
-        self.repos.approvals.update_status(
-            token,
-            ApprovalStatus.REJECTED,
-            rejection_reason=reason,
-        )
-
-        # 2. Transition post status: PENDING_APPROVAL -> REJECTED -> REGENERATING
+        # Transition post status: PENDING_APPROVAL -> REJECTED -> REGENERATING
         self.repos.posts.update_status(post.post_id, PostStatus.REJECTED)
         self.repos.posts.update_status(post.post_id, PostStatus.REGENERATING)
 
-        # 3. Call pipeline regeneration
-        regenerated_draft = regenerate_draft(
-            rejected_draft=post.post_id,
-            rejection_reason=reason,
-            client=self.gemini_client,
-            repo_manager=self.repos,
-        )
+        try:
+            # 1. Call pipeline regeneration
+            regenerated_draft = regenerate_draft(
+                rejected_draft=post.post_id,
+                rejection_reason=reason,
+                client=self.gemini_client,
+                repo_manager=self.repos,
+                image_provider=self.image_provider,
+            )
 
-        # 4. Generate NEW approval request with NEW secure token
-        new_approval = self.create_approval_request(
-            post_id=post.post_id,
-            revision_number=regenerated_draft.revision,
-        )
+            # 2. Invalidate current approval token as REJECTED once generation succeeds
+            self.repos.approvals.update_status(
+                token,
+                ApprovalStatus.REJECTED,
+                rejection_reason=reason,
+            )
 
-        return ApprovalActionResponse(
-            status="regenerated",
-            post_id=post.post_id,
-            revision=regenerated_draft.revision,
-            approval_url=new_approval.approval_url,
-            message="New version generated and ready for review.",
-        )
+            # 3. Generate NEW approval request with NEW secure token
+            new_approval = self.create_approval_request(
+                post_id=post.post_id,
+                revision_number=regenerated_draft.revision,
+            )
+
+            return ApprovalActionResponse(
+                status="regenerated",
+                post_id=post.post_id,
+                revision=regenerated_draft.revision,
+                approval_url=new_approval.approval_url,
+                message="New version generated and ready for review.",
+            )
+        except Exception:
+            # Rollback: restore post status so the post is not orphaned in REGENERATING
+            # and the existing approval token remains active (PENDING) for retry.
+            self.repos.posts.update_status(post.post_id, PostStatus.PENDING_APPROVAL)
+            raise

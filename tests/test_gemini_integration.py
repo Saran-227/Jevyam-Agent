@@ -1,18 +1,27 @@
 """Tests for Gemini integration wrapper and error handling."""
 
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 from google.genai.errors import APIError
 
 from agent.exceptions import (
     GeminiAPIError,
+    GeminiAuthError,
+    GeminiNetworkError,
+    GeminiRateLimitError,
+    GeminiUnavailableError,
     InvalidGeminiResponseError,
     MissingGeminiApiKeyError,
 )
 from integrations.gemini import (
+    MAX_RETRIES,
+    _calculate_backoff,
+    _extract_retry_after,
+    _is_transient_error,
     generate_structured_content,
+    generate_text,
     get_gemini_client,
 )
 from config.settings import settings
@@ -116,6 +125,140 @@ def test_api_error_wrapped():
     assert "Gemini API error" in str(exc_info.value)
 
 
+def test_gemini_auth_error_not_retried():
+    """Verify permanent 401/403 authentication error raises GeminiAuthError without retries."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = APIError(
+        code=401,
+        response_json={"error": {"code": 401, "message": "API_KEY_INVALID", "status": "UNAUTHENTICATED"}},
+    )
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiAuthError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+            )
+        assert mock_client.models.generate_content.call_count == 1
+        mock_sleep.assert_not_called()
+        assert "authentication/permission error" in str(exc_info.value)
+
+
+def test_gemini_503_transient_retry_success():
+    """Verify transient 503 error retries and succeeds if subsequent attempt succeeds."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "The model is overloaded. Please try again later.", "status": "UNAVAILABLE"}},
+    )
+    mock_resp = MagicMock()
+    mock_resp.text = '{"title": "Success After Retry", "score": 90}'
+    mock_client.models.generate_content.side_effect = [mock_503, mock_resp]
+
+    with patch("time.sleep") as mock_sleep:
+        result = generate_structured_content(
+            client=mock_client,
+            prompt="Test",
+            schema=SampleSchema,
+        )
+        assert result.title == "Success After Retry"
+        assert result.score == 90
+        assert mock_client.models.generate_content.call_count == 2
+        mock_sleep.assert_called_once()
+        # Verify sleep duration is bounded and positive
+        sleep_dur = mock_sleep.call_args[0][0]
+        assert 1.5 <= sleep_dur <= 5.0
+
+
+def test_gemini_503_exhausted_retries_raises_unavailable_error():
+    """Verify repeated 503 error exhausts retries and raises GeminiUnavailableError."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "Service Unavailable", "status": "UNAVAILABLE"}},
+    )
+    mock_client.models.generate_content.side_effect = mock_503
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiUnavailableError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES
+        assert mock_sleep.call_count == MAX_RETRIES - 1
+        assert "service temporarily unavailable" in str(exc_info.value)
+
+
+def test_gemini_429_rate_limit_error_exhausted():
+    """Verify 429 quota exhaustion raises GeminiRateLimitError after retries."""
+    mock_client = MagicMock()
+    mock_429 = APIError(
+        code=429,
+        response_json={"error": {"code": 429, "message": "RESOURCE_EXHAUSTED", "status": "RESOURCE_EXHAUSTED"}},
+    )
+    mock_client.models.generate_content.side_effect = mock_429
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiRateLimitError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES
+        assert "rate limit or quota exceeded" in str(exc_info.value)
+
+
+def test_gemini_retry_after_respected():
+    """Verify Retry-After response header is respected for backoff duration."""
+    mock_resp = MagicMock()
+    mock_resp.headers = {"retry-after": "6.5"}
+    err = APIError(
+        code=429,
+        response_json={"error": {"code": 429, "message": "Rate limit"}},
+        response=mock_resp,
+    )
+    assert _extract_retry_after(err) == 6.5
+    backoff = _calculate_backoff(attempt=1, e=err)
+    assert backoff == 6.5
+
+
+def test_gemini_network_timeout_retry():
+    """Verify transient network timeout retries and raises GeminiNetworkError when exhausted."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = TimeoutError("Connection to Gemini timed out")
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiNetworkError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES
+        assert "network error" in str(exc_info.value).lower()
+
+
+def test_generate_text_transient_retry_and_success():
+    """Verify generate_text also benefits from transient retries and mappings."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "High demand", "status": "UNAVAILABLE"}},
+    )
+    mock_resp = MagicMock()
+    mock_resp.text = "Generated text content"
+    mock_client.models.generate_content.side_effect = [mock_503, mock_resp]
+
+    with patch("time.sleep") as mock_sleep:
+        text = generate_text(client=mock_client, prompt="Prompt")
+        assert text == "Generated text content"
+        assert mock_client.models.generate_content.call_count == 2
+
+
 @pytest.mark.skipif(
     os.getenv("RUN_LIVE_GEMINI_TESTS", "0") != "1",
     reason="Live Gemini API test skipped unless RUN_LIVE_GEMINI_TESTS=1 is set.",
@@ -130,3 +273,41 @@ def test_live_gemini_api():
     )
     assert isinstance(result, SampleSchema)
     assert result.score == 100
+
+
+def test_generate_gemini_image_multimodal_success():
+    """Verify generate_gemini_image extracts image bytes from multimodal response."""
+    from integrations.gemini import generate_gemini_image
+
+    mock_client = MagicMock()
+    mock_part = MagicMock()
+    mock_part.inline_data = MagicMock(data=b"\x89PNGFakeImageBytes", mime_type="image/png")
+    mock_cand = MagicMock()
+    mock_cand.content.parts = [mock_part]
+    mock_resp = MagicMock()
+    mock_resp.candidates = [mock_cand]
+    mock_client.models.generate_content.return_value = mock_resp
+
+    image_bytes, mime = generate_gemini_image(mock_client, "Test prompt")
+    assert image_bytes == b"\x89PNGFakeImageBytes"
+    assert mime == "image/png"
+
+
+def test_generate_gemini_image_fallback_to_generate_images():
+    """Verify fallback to models.generate_images if multimodal has no image parts."""
+    from integrations.gemini import generate_gemini_image
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = MagicMock(candidates=[])
+
+    mock_img = MagicMock()
+    mock_img.image = MagicMock(image_bytes=b"JpegBytes", mime_type="image/png")
+    mock_client.models.generate_images.return_value = MagicMock(generated_images=[mock_img])
+
+    image_bytes, mime = generate_gemini_image(mock_client, "Test prompt")
+    assert image_bytes == b"JpegBytes"
+    assert mime == "image/png"
+
+
+
+

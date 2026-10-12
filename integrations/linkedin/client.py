@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import httpx
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,7 @@ class LinkedInClient:
     """Client for interacting with LinkedIn REST API to publish organizational updates."""
 
     POSTS_API_URL = "https://api.linkedin.com/rest/posts"
+    IMAGES_API_URL = "https://api.linkedin.com/rest/images"
 
     def __init__(
         self,
@@ -214,6 +215,240 @@ class LinkedInClient:
         finally:
             if not self._client:
                 client.close()
+
+    def initialize_image_upload(
+        self,
+        client: Optional[httpx.Client] = None,
+    ) -> Tuple[str, str]:
+        """Initialize an image upload via LinkedIn REST Images API.
+
+        Calls: POST https://api.linkedin.com/rest/images?action=initializeUpload
+
+        Returns:
+            Tuple of (upload_url, image_urn).
+        """
+        self.validate_credentials()
+        author_urn = self.organization_urn
+        url = f"{self.IMAGES_API_URL}?action=initializeUpload"
+        payload = {
+            "initializeUploadRequest": {
+                "owner": author_urn,
+            }
+        }
+
+        http = client or self._client or httpx.Client(timeout=30.0)
+        should_close = not (client or self._client)
+        try:
+            logger.info(f"Initializing LinkedIn image upload for owner: {author_urn}")
+            response = http.post(
+                url,
+                json=payload,
+                headers=self._get_headers(),
+            )
+            self._handle_status_code(response, "initialize image upload")
+            data = response.json() if response.content else {}
+            value = data.get("value", {})
+            upload_url = value.get("uploadUrl")
+            image_urn = value.get("image")
+            if not upload_url or not image_urn:
+                raise LinkedInAPIError(f"LinkedIn image upload initialization missing uploadUrl or image URN: {data}")
+            return upload_url, image_urn
+        except (LinkedInAuthError, LinkedInPermissionError, LinkedInValidationError, LinkedInRateLimitError, LinkedInAPIError):
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            raise LinkedInNetworkError(f"LinkedIn API network failure during image upload init: {str(e)}") from e
+        except Exception as e:
+            raise LinkedInAPIError(f"Unexpected error initializing LinkedIn image upload: {str(e)}") from e
+        finally:
+            if should_close:
+                http.close()
+
+    def upload_image_binary(
+        self,
+        upload_url: str,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        client: Optional[httpx.Client] = None,
+    ) -> None:
+        """Upload raw image binary to the single-use LinkedIn uploadUrl via PUT."""
+        if not image_bytes:
+            raise LinkedInValidationError("Cannot upload empty image binary payload.")
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": mime_type,
+        }
+        http = client or self._client or httpx.Client(timeout=60.0)
+        should_close = not (client or self._client)
+        try:
+            logger.info("Uploading binary image bytes to LinkedIn media upload endpoint...")
+            response = http.put(
+                upload_url,
+                content=image_bytes,
+                headers=headers,
+            )
+            if response.status_code not in (200, 201):
+                err_body = self._safe_error_extract(response)
+                raise LinkedInAPIError(
+                    f"LinkedIn image binary upload failed with status {response.status_code}: {err_body}"
+                )
+        except (LinkedInAPIError, LinkedInValidationError):
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            raise LinkedInNetworkError(f"Network error uploading image bytes to LinkedIn: {str(e)}") from e
+        except Exception as e:
+            raise LinkedInAPIError(f"Unexpected error uploading image bytes to LinkedIn: {str(e)}") from e
+        finally:
+            if should_close:
+                http.close()
+
+    def publish_image_post(
+        self,
+        text: str,
+        image_url: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
+        title: Optional[str] = None,
+    ) -> LinkedInPublishResponse:
+        """Publish a complete post with accompanying image asset to LinkedIn Company Page.
+
+        Performs:
+        1. Download / read image bytes.
+        2. Initialize image upload (POST /rest/images?action=initializeUpload).
+        3. Upload binary bytes (PUT uploadUrl).
+        4. Create post referencing image URN (POST /rest/posts).
+        """
+        self.validate_credentials()
+        if not text or not str(text).strip():
+            raise LinkedInValidationError("Cannot publish an empty post to LinkedIn.")
+
+        cleaned_text = str(text).strip()
+        author_urn = self.organization_urn
+
+        client = self._client or httpx.Client(timeout=60.0)
+        should_close = not self._client
+
+        try:
+            # 1. Obtain image binary bytes
+            bytes_to_upload = image_bytes
+            mime_type = "image/png"
+            if bytes_to_upload is None and image_url:
+                try:
+                    logger.info(f"Fetching stored post image for LinkedIn dispatch from: {image_url}")
+                    img_resp = client.get(image_url, timeout=30.0)
+                    if img_resp.status_code != 200:
+                        raise LinkedInValidationError(
+                            f"Failed to fetch image from URL '{image_url}' (HTTP {img_resp.status_code})."
+                        )
+                    bytes_to_upload = img_resp.content
+                    content_type = img_resp.headers.get("Content-Type", "")
+                    if "jpeg" in content_type.lower() or "jpg" in content_type.lower():
+                        mime_type = "image/jpeg"
+                except Exception as e:
+                    if isinstance(e, LinkedInValidationError):
+                        raise
+                    raise LinkedInNetworkError(f"Failed to fetch post image from storage: {e}") from e
+
+            if not bytes_to_upload:
+                raise LinkedInValidationError("No valid image bytes or URL provided for image publication.")
+
+            # 2. Initialize upload
+            upload_url, image_urn = self.initialize_image_upload(client=client)
+
+            # 3. Upload binary image
+            self.upload_image_binary(upload_url, bytes_to_upload, mime_type=mime_type, client=client)
+
+            # 4. Create post with media
+            payload: Dict[str, Any] = {
+                "author": author_urn,
+                "commentary": cleaned_text,
+                "visibility": "PUBLIC",
+                "distribution": {
+                    "feedDistribution": "MAIN_FEED",
+                    "targetEntities": [],
+                    "thirdPartyDistributionChannels": [],
+                },
+                "content": {
+                    "media": {
+                        "id": image_urn,
+                        "title": title or "Jevyam Technologies Visual",
+                    }
+                },
+                "lifecycleState": "PUBLISHED",
+                "isReshareDisabledByAuthor": False,
+            }
+
+            logger.info(f"Publishing image post to LinkedIn organization {author_urn} with media {image_urn}...")
+            response = client.post(
+                self.POSTS_API_URL,
+                json=payload,
+                headers=self._get_headers(),
+            )
+            self._handle_status_code(response, "create image post")
+
+            post_urn = response.headers.get("x-restli-id")
+            raw_json = {}
+            if response.content:
+                try:
+                    raw_json = response.json()
+                    if not post_urn and "id" in raw_json:
+                        post_urn = raw_json["id"]
+                except Exception:
+                    pass
+
+            if not post_urn:
+                post_urn = f"urn:li:share:generated_{response.status_code}"
+
+            permalink = f"https://www.linkedin.com/feed/update/{post_urn}"
+            return LinkedInPublishResponse(
+                success=True,
+                post_urn=post_urn,
+                post_url=permalink,
+                target_urn=author_urn,
+                raw_response=raw_json or {"status": response.status_code, "image_urn": image_urn},
+            )
+
+        except (LinkedInAuthError, LinkedInPermissionError, LinkedInValidationError, LinkedInRateLimitError, LinkedInAPIError):
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            raise LinkedInNetworkError(f"LinkedIn API network failure during image post publishing: {str(e)}") from e
+        except Exception as e:
+            raise LinkedInAPIError(f"Unexpected error publishing image post to LinkedIn: {str(e)}") from e
+        finally:
+            if should_close:
+                client.close()
+
+    def _handle_status_code(self, response: httpx.Response, action_description: str = "request") -> None:
+        """Handle error HTTP response status codes with structured exceptions."""
+        if response.status_code in (200, 201):
+            return
+
+        author_urn = self.organization_urn
+        err_body = self._safe_error_extract(response)
+
+        if response.status_code in (401,):
+            raise LinkedInAuthError(
+                f"LinkedIn authentication failed (401 Unauthorized) during {action_description}: {err_body}"
+            )
+        if response.status_code in (403,):
+            raise LinkedInPermissionError(
+                f"LinkedIn permission denied (403 Forbidden). Ensure app has 'w_organization_social' scope and access to {author_urn}: {err_body}"
+            )
+        if response.status_code in (400, 422):
+            raise LinkedInValidationError(
+                f"LinkedIn rejected post content ({response.status_code} Bad Request) during {action_description}: {err_body}"
+            )
+        if response.status_code in (429,):
+            raise LinkedInRateLimitError(
+                f"LinkedIn API rate limit exceeded (429 Too Many Requests) during {action_description}: {err_body}"
+            )
+        if response.status_code >= 500:
+            raise LinkedInAPIError(
+                f"LinkedIn remote server error ({response.status_code}) during {action_description}: {err_body}"
+            )
+
+        raise LinkedInAPIError(
+            f"Unexpected LinkedIn API response status {response.status_code} during {action_description}: {err_body}"
+        )
 
     @staticmethod
     def _safe_error_extract(response: httpx.Response) -> str:

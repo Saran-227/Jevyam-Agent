@@ -24,8 +24,21 @@ def get_whatsapp_service() -> "WhatsAppService":
 def get_publishing_service() -> "PublishingService":
     """Dependency provider for PublishingService."""
     from api.services.publishing_service import PublishingService
+    from config.settings import settings
 
     repos = get_repository_manager()
-    return PublishingService(repo_manager=repos)
+    is_mock = settings.LINKEDIN_MOCK_PUBLISHING or settings.DRY_RUN
+    return PublishingService(repo_manager=repos, mock_mode=is_mock)
+
+
+def get_telegram_service() -> "TelegramService":
+    """Dependency provider for TelegramService."""
+    from api.services.telegram_service import TelegramService
+    from integrations.telegram.provider import get_telegram_provider
+
+    approval_service = get_approval_service()
+    provider = get_telegram_provider()
+    return TelegramService(approval_service=approval_service, provider=provider)
+
 
 

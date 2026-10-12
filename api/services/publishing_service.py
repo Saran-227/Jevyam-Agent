@@ -40,9 +40,24 @@ class PublishingService:
         self,
         repo_manager: Optional[RepositoryManager] = None,
         publisher: Optional[LinkedInPublisher] = None,
+        mock_mode: Optional[bool] = None,
     ):
         self.repos = repo_manager or get_repository_manager()
         self.publisher = publisher or LinkedInPublisher()
+        has_credentials = bool(
+            settings.LINKEDIN_ACCESS_TOKEN
+            and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
+        )
+        if mock_mode is not None:
+            self.mock_mode = mock_mode
+        elif publisher is not None:
+            self.mock_mode = False
+        elif settings.LINKEDIN_MOCK_PUBLISHING:
+            self.mock_mode = True
+        elif settings.DRY_RUN and publisher is None and has_credentials:
+            self.mock_mode = True
+        else:
+            self.mock_mode = False
 
     def publish_approved_post(
         self,
@@ -113,7 +128,11 @@ class PublishingService:
         )
 
         # 5. Create PENDING publication audit record
-        target_urn = self.publisher.client.organization_urn
+        target_urn = (
+            self.publisher.client.organization_urn
+            if (hasattr(self.publisher, "client") and getattr(self.publisher.client, "organization_id", None))
+            else "urn:li:organization:mock_company"
+        )
         pub_record = self.repos.publications.create(
             Publication(
                 post_id=post.post_id,
@@ -124,7 +143,48 @@ class PublishingService:
             )
         )
 
-        # 6. Dispatch to LinkedIn API
+        # 6. Dispatch: Mock Mode (Dry Run / Test Mode) vs Real LinkedIn API
+        if self.mock_mode:
+            now = datetime.now()
+            mock_post_urn = f"urn:li:share:mock_{post.post_id}_rev{post.current_revision}"
+            mock_post_url = f"https://www.linkedin.com/feed/update/{mock_post_urn}"
+            has_image = bool((active_rev.image_url if active_rev else None) or post.image_url)
+            mock_image_urn = f"urn:li:image:mock_{post.post_id}_rev{post.current_revision}" if has_image else None
+
+            # 7. Update master post in database
+            self.repos.posts.update_status(post.post_id, PostStatus.PUBLISHED)
+            post.status = PostStatus.PUBLISHED
+            post.linkedin_post_id = mock_post_urn
+            post.published_at = now
+            self.repos.posts.update(post)
+
+            # 8. Update publication audit record
+            self.repos.publications.update_status(
+                publication_id=pub_record.id,
+                status=PublicationStatus.PUBLISHED,
+                external_post_id=mock_post_urn,
+                published_at=now,
+            )
+
+            img_desc = f" with image asset ({mock_image_urn})" if mock_image_urn else ""
+            logger.info(
+                f"[MOCK] Simulated LinkedIn publication for post '{post_id}'{img_desc} (mock_mode=True). "
+                f"Post URN: {mock_post_urn}"
+            )
+
+            return {
+                "status": "published",
+                "is_duplicate": False,
+                "post_id": post.post_id,
+                "revision": post.current_revision,
+                "external_post_id": mock_post_urn,
+                "image_urn": mock_image_urn,
+                "post_url": mock_post_url,
+                "published_at": now.isoformat(),
+                "message": f"Successfully simulated publication for post '{post_id}' to LinkedIn Company Page (Mock Mode).",
+            }
+
+        # Real LinkedIn API dispatch
         try:
             publish_res = self.publisher.publish(post=post, revision=active_rev)
             now = datetime.now()

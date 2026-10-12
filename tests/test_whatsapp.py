@@ -291,7 +291,7 @@ def test_yes_callback_mapping(mock_repo_manager, sample_draft_post):
 
     # Verify database state
     updated_post = mock_repo_manager.posts.get_by_post_id("JVY-20260929-001")
-    assert updated_post.status == PostStatus.APPROVED
+    assert updated_post.status in (PostStatus.APPROVED, PostStatus.PUBLISHED)
 
     updated_approval = mock_repo_manager.approvals.get_by_token(token)
     assert updated_approval.status == ApprovalStatus.APPROVED

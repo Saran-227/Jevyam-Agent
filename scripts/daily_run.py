@@ -50,6 +50,27 @@ def create_mock_gemini_client() -> Any:
     client = MagicMock()
     mock_ideas = [
         {
+            "topic": "Why Vector Search Needs Hybrid Keyword Inverted Indexes",
+            "angle": "Information retrieval trade-offs in modern RAG systems",
+            "content_type": "software engineering",
+            "target_audience": "CTOs and Lead Engineers",
+            "reason": "Clear architectural insights on retrieval reliability.",
+        },
+        {
+            "topic": "Deterministic State Machines for AI Agent Safety",
+            "angle": "Bounding agentic executions with finite state machines",
+            "content_type": "AI and engineering",
+            "target_audience": "Founders and Engineering Leaders",
+            "reason": "Reinforces pragmatic AI deployment safety.",
+        },
+        {
+            "topic": "Decoupled Message Queuing with Dead-Letter Handling",
+            "angle": "Reliable queue worker architectures in fintech",
+            "content_type": "software engineering",
+            "target_audience": "Tech Leads and Backend Engineers",
+            "reason": "Enterprise queue reliability principles.",
+        },
+        {
             "topic": "Why Event-Driven Microservices Beat Monolithic Cron Pipelines",
             "angle": "Event-driven automation architectures decouple state and prevent silent job dropouts",
             "content_type": "software engineering",
@@ -63,13 +84,8 @@ def create_mock_gemini_client() -> Any:
             "target_audience": "Founders, Engineering Leaders, and Operations Heads",
             "reason": "Reinforces pragmatic AI deployment over reckless unmonitored automation.",
         },
-        {
-            "topic": "Zero-Downtime Database Schema Migrations at Scale",
-            "angle": "Blue-green database deployments and backward compatible views in high-throughput systems",
-            "content_type": "database engineering",
-            "target_audience": "Principal Engineers and Tech Leads",
-            "reason": "Addresses high-stakes data migration challenges in production.",
-        },
+
+
     ]
 
     idea_cursor = {"index": 0}
@@ -168,6 +184,13 @@ def main() -> int:
         help="Use in-memory repository rather than Supabase (useful for offline testing)",
     )
     parser.add_argument(
+        "--provider",
+        type=str,
+        choices=["telegram", "whatsapp"],
+        default=None,
+        help="Approval provider to use ('telegram' or 'whatsapp')",
+    )
+    parser.add_argument(
         "--posts-dir",
         type=str,
         default=None,
@@ -181,6 +204,10 @@ def main() -> int:
 
     args = parser.parse_args()
     configure_logging(verbose=args.verbose)
+
+    # If --provider is explicitly passed, override settings
+    if args.provider:
+        settings.APPROVAL_PROVIDER = args.provider
 
     # Determine execution mode
     if args.live:
@@ -220,8 +247,12 @@ def main() -> int:
                 print(f"  Revision:       {result.revision_number}")
                 print(f"  Status:         {result.status}")
                 print(f"  Approval URL:   {result.approval_url}")
-                print(f"  WhatsApp Msg ID:{result.whatsapp_message_id}")
+                if result.telegram_message_id:
+                    print(f"  Telegram Msg ID:{result.telegram_message_id}")
+                if result.whatsapp_message_id:
+                    print(f"  WhatsApp Msg ID:{result.whatsapp_message_id}")
             return 0
+
         else:
             print(f"\n[FAILURE] {result.message}")
             return 1

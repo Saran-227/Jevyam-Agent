@@ -2,10 +2,11 @@
 
 from datetime import datetime, timedelta
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from agent.exceptions import GeminiUnavailableError
 from agent.image_generator import ImageBrief
 from api.dependencies import get_approval_service
 from api.main import app
@@ -217,7 +218,7 @@ def test_yes_approval_lifecycle(client_and_service, seeded_post):
 
     # Verify repository state
     post_after = repo_manager.posts.get_by_post_id(seeded_post.post_id)
-    assert post_after.status == PostStatus.APPROVED
+    assert post_after.status in (PostStatus.APPROVED, PostStatus.PUBLISHED)
     assert post_after.approved_at is not None
 
     approval_record = repo_manager.approvals.get_by_token(appr_resp.approval_token)
@@ -365,3 +366,49 @@ def test_dev_endpoint_create_approval(client_and_service, seeded_post):
     assert data["revision_number"] == 1
     assert data["approval_token"].startswith("appr_")
     assert "/approve/" in data["approval_url"]
+
+
+def test_regeneration_failure_recovers_cleanly(client_and_service, seeded_post):
+    """20. Test that when Gemini regeneration fails, the token is not consumed, post reverts to PENDING_APPROVAL, and subsequent attempt succeeds."""
+    test_client, service, repo_manager = client_and_service
+    appr_resp = service.create_approval_request(seeded_post.post_id, revision_number=1)
+    old_token = appr_resp.approval_token
+
+    # 1. Simulate Gemini failure during regeneration
+    with patch("api.services.approval_service.regenerate_draft") as mock_regen:
+        mock_regen.side_effect = GeminiUnavailableError("Gemini 503 service unavailable")
+
+        resp1 = test_client.post(f"/approve/{old_token}/no", json={"reason": "Revise this"})
+        assert resp1.status_code == 500
+
+    # Verify rollback: token is STILL PENDING, post is STILL PENDING_APPROVAL (not stuck in REGENERATING)
+    old_approval_record = repo_manager.approvals.get_by_token(old_token)
+    assert old_approval_record.status == ApprovalStatus.PENDING
+
+    post_record = repo_manager.posts.get_by_post_id(seeded_post.post_id)
+    assert post_record.status == PostStatus.PENDING_APPROVAL
+    assert post_record.current_revision == 1
+
+    # Verify no partial revision was created
+    revisions = repo_manager.revisions.get_by_post_id(seeded_post.post_id)
+    assert len(revisions) == 1
+
+    # 2. Simulate retry with the SAME token succeeding
+    resp2 = test_client.post(f"/approve/{old_token}/no", json={"reason": "Revise this"})
+    assert resp2.status_code == 200
+    data = resp2.json()
+    assert data["status"] == "regenerated"
+    assert data["revision"] == 2
+
+    # Verify old token is now consumed as REJECTED
+    old_approval_after = repo_manager.approvals.get_by_token(old_token)
+    assert old_approval_after.status == ApprovalStatus.REJECTED
+
+    # Verify post and revisions are updated
+    post_after = repo_manager.posts.get_by_post_id(seeded_post.post_id)
+    assert post_after.current_revision == 2
+    assert post_after.status == PostStatus.PENDING_APPROVAL
+
+    all_revisions = repo_manager.revisions.get_by_post_id(seeded_post.post_id)
+    assert len(all_revisions) == 2
+

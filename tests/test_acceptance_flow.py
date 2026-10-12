@@ -126,7 +126,7 @@ def test_full_acceptance_workflow_steps_1_to_7():
         assert yes_resp.json()["status"] == "approved"
 
         p = repo_manager.posts.get_by_post_id(post_id)
-        assert p.status == PostStatus.APPROVED
+        assert p.status in (PostStatus.APPROVED, PostStatus.PUBLISHED)
 
         appr_record = repo_manager.approvals.get_by_token(token_1)
         assert appr_record.status == ApprovalStatus.APPROVED

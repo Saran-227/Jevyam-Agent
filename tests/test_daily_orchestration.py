@@ -142,7 +142,20 @@ def test_validate_configuration_live_mode_refusal():
     repos = create_test_repo_manager()
     orchestrator = DailyOrchestrator(repo_manager=repos, use_in_memory_db=True)
 
-    with patch.object(settings, "WHATSAPP_ACCESS_TOKEN", None), \
+    # 1. Telegram (default provider)
+    with patch.object(settings, "APPROVAL_PROVIDER", "telegram"), \
+         patch.object(settings, "TELEGRAM_BOT_TOKEN", None), \
+         patch.object(settings, "LINKEDIN_ACCESS_TOKEN", None):
+        with pytest.raises(ConfigurationError) as exc_info:
+            orchestrator.validate_configuration(mode="live")
+        err_msg = str(exc_info.value)
+        assert "LIVE mode cannot proceed" in err_msg
+        assert "TELEGRAM_BOT_TOKEN" in err_msg
+        assert "LINKEDIN_ACCESS_TOKEN" in err_msg
+
+    # 2. WhatsApp provider
+    with patch.object(settings, "APPROVAL_PROVIDER", "whatsapp"), \
+         patch.object(settings, "WHATSAPP_ACCESS_TOKEN", None), \
          patch.object(settings, "LINKEDIN_ACCESS_TOKEN", None):
         with pytest.raises(ConfigurationError) as exc_info:
             orchestrator.validate_configuration(mode="live")
@@ -157,17 +170,18 @@ def test_validate_configuration_live_mode_placeholders_rejected():
     repos = create_test_repo_manager()
     orchestrator = DailyOrchestrator(repo_manager=repos, use_in_memory_db=True)
 
-    with patch.object(settings, "GEMINI_API_KEY", "your_gemini_key"), \
+    with patch.object(settings, "APPROVAL_PROVIDER", "telegram"), \
+         patch.object(settings, "GEMINI_API_KEY", "your_gemini_key"), \
          patch.object(settings, "SUPABASE_URL", "your_supabase_url"), \
          patch.object(settings, "SUPABASE_KEY", "your_supabase_key"), \
-         patch.object(settings, "WHATSAPP_ACCESS_TOKEN", "your_wa_token"), \
-         patch.object(settings, "WHATSAPP_PHONE_NUMBER_ID", "your_phone_id"), \
-         patch.object(settings, "WHATSAPP_FOUNDER_PHONE", "+919876543210"), \
+         patch.object(settings, "TELEGRAM_BOT_TOKEN", "your_telegram_bot_token"), \
+         patch.object(settings, "TELEGRAM_FOUNDER_CHAT_ID", "123456789"), \
          patch.object(settings, "LINKEDIN_ACCESS_TOKEN", "your_li_token"), \
          patch.object(settings, "LINKEDIN_ORGANIZATION_ID", "12345678"):
         with pytest.raises(ConfigurationError) as exc_info:
             orchestrator.validate_configuration(mode="live")
         assert "LIVE mode cannot proceed" in str(exc_info.value)
+
 
 
 def test_daily_run_mock_end_to_end_success(tmp_path):

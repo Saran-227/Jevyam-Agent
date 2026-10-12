@@ -15,7 +15,7 @@ from agent.exceptions import (
     ContentGenerationError,
     DuplicateContentError,
 )
-from agent.image_generator import ImageBrief, generate_image_brief
+from agent.image_generator import BaseImageProvider, ImageBrief, generate_image_brief
 from agent.knowledge import CompanyKnowledge, load_company_knowledge
 from agent.prompts import render_regeneration_prompt
 from agent.repetition import check_repetition
@@ -43,6 +43,7 @@ class LinkedInDraft(BaseModel):
     call_to_action: str = Field(..., description="Closing engagement question or prompt")
     visual_concept: str = Field(..., description="Core concept for the accompanying visual")
     image_brief: ImageBrief = Field(..., description="Structured image generation brief")
+    image_url: Optional[str] = Field(default=None, description="Public URL to companion visual")
     revision: int = Field(default=1, description="Revision number of this draft")
     status: str = Field(default="DRAFT", description="Workflow approval status")
 
@@ -114,6 +115,7 @@ def run_content_pipeline(
     repo_manager: Optional[RepositoryManager] = None,
     use_in_memory: Optional[bool] = None,
     save_local_copy: bool = True,
+    image_provider: Optional[BaseImageProvider] = None,
 ) -> LinkedInDraft:
     """Execute the end-to-end LinkedIn content generation pipeline.
 
@@ -224,11 +226,23 @@ def run_content_pipeline(
         repo_manager=repos,
     )
 
+    # 5. Generate companion visual if image_provider is supplied
+    image_url: Optional[str] = None
+    if image_provider is not None:
+        try:
+            image_url = image_provider.generate_image(
+                brief=image_brief,
+                post_id=post_id,
+                revision=1,
+            )
+        except Exception as e:
+            raise ContentGenerationError(f"Companion image generation failed: {e}") from e
+
     # Lookup company
     company = repos.companies.get_by_slug("jevyam")
     company_id = company.id if company else None
 
-    # 5. Persist to Database: Master Post (status=DRAFT, revision=1)
+    # 6. Persist to Database: Master Post (status=DRAFT, revision=1)
     post_entity = Post(
         post_id=post_id,
         company_id=company_id,
@@ -244,12 +258,13 @@ def run_content_pipeline(
         call_to_action=post_content.call_to_action,
         visual_concept=image_brief.visual_concept,
         image_brief=image_brief,
+        image_url=image_url,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
     saved_post = repos.posts.create(post_entity)
 
-    # 6. Persist to Database: Initial PostRevision (revision_number=1)
+    # 7. Persist to Database: Initial PostRevision (revision_number=1)
     revision_entity = PostRevision(
         post_id=post_id,
         revision_number=1,
@@ -263,11 +278,12 @@ def run_content_pipeline(
         call_to_action=post_content.call_to_action,
         visual_concept=image_brief.visual_concept,
         image_brief=image_brief,
+        image_url=image_url,
         created_at=datetime.now(),
     )
     repos.revisions.create(revision_entity)
 
-    # 7. Construct output draft
+    # 8. Construct output draft
     draft = LinkedInDraft(
         post_id=saved_post.post_id,
         generated_at=str(saved_post.created_at or datetime.now().isoformat()),
@@ -281,6 +297,7 @@ def run_content_pipeline(
         call_to_action=saved_post.call_to_action,
         visual_concept=saved_post.visual_concept,
         image_brief=image_brief,
+        image_url=image_url,
         revision=saved_post.current_revision,
         status=saved_post.status.value,
     )
@@ -302,6 +319,7 @@ def regenerate_draft(
     repo_manager: Optional[RepositoryManager] = None,
     use_in_memory: Optional[bool] = None,
     save_local_copy: bool = True,
+    image_provider: Optional[BaseImageProvider] = None,
 ) -> LinkedInDraft:
     """Regenerate a draft by intentionally pivoting topic, angle, hook, or structure.
 
@@ -428,6 +446,18 @@ def regenerate_draft(
         prompts_dir=prompts_dir,
     )
 
+    # Generate companion visual for new revision if provider is supplied
+    image_url: Optional[str] = None
+    if image_provider is not None:
+        try:
+            image_url = image_provider.generate_image(
+                brief=image_brief,
+                post_id=post_id,
+                revision=next_rev_num,
+            )
+        except Exception as e:
+            raise ContentGenerationError(f"Image generation failed during draft regeneration: {e}") from e
+
     # Persist NEW revision snapshot to post_revisions
     new_rev = PostRevision(
         post_id=post_id,
@@ -442,6 +472,7 @@ def regenerate_draft(
         call_to_action=post_content.call_to_action,
         visual_concept=image_brief.visual_concept,
         image_brief=image_brief,
+        image_url=image_url,
         rejection_reason=rejection_reason,
         created_at=datetime.now(),
     )
@@ -460,6 +491,7 @@ def regenerate_draft(
     existing_post.call_to_action = post_content.call_to_action
     existing_post.visual_concept = image_brief.visual_concept
     existing_post.image_brief = image_brief
+    existing_post.image_url = image_url
     existing_post.updated_at = datetime.now()
 
     updated_post = repos.posts.update(existing_post)
@@ -478,6 +510,7 @@ def regenerate_draft(
         call_to_action=updated_post.call_to_action,
         visual_concept=updated_post.visual_concept,
         image_brief=image_brief,
+        image_url=image_url,
         revision=updated_post.current_revision,
         status=updated_post.status.value,
     )

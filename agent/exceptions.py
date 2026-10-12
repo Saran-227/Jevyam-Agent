@@ -26,6 +26,26 @@ class GeminiAPIError(JevyamAgentError):
     pass
 
 
+class GeminiAuthError(GeminiAPIError):
+    """Raised when Gemini returns a 401 or 403 authentication or permission error."""
+    pass
+
+
+class GeminiRateLimitError(GeminiAPIError):
+    """Raised when Gemini returns a 429 quota or rate-limit exceeded error."""
+    pass
+
+
+class GeminiUnavailableError(GeminiAPIError):
+    """Raised when Gemini returns a 503 temporary service unavailable error."""
+    pass
+
+
+class GeminiNetworkError(GeminiAPIError):
+    """Raised when network timeouts, transport failures, or socket errors occur connecting to Gemini."""
+    pass
+
+
 class InvalidGeminiResponseError(JevyamAgentError):
     """Raised when Gemini returns a malformed response or fails schema validation."""
     pass
@@ -38,6 +58,16 @@ class DuplicateContentError(JevyamAgentError):
 
 class ContentGenerationError(JevyamAgentError):
     """Raised when the content generation pipeline fails to produce a draft."""
+    pass
+
+
+class ImageGenerationError(JevyamAgentError):
+    """Raised when AI image generation fails."""
+    pass
+
+
+class ImageStorageError(JevyamAgentError):
+    """Raised when uploading or storing an image in persistent storage fails."""
     pass
 
 
@@ -77,6 +107,11 @@ class ApprovalSupersededError(ApprovalError):
 
 class PostNotEligibleForApprovalError(ApprovalError):
     """Raised when attempting to create an approval request for an ineligible post."""
+    pass
+
+
+class ApprovalInProgressError(ApprovalError):
+    """Raised when an approval action is already being processed or currently regenerating."""
     pass
 
 

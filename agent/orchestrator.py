@@ -17,12 +17,16 @@ from agent.exceptions import (
     JevyamAgentError,
     MissingGeminiApiKeyError,
 )
+from agent.image_generator import BaseImageProvider
 from agent.pipeline import LinkedInDraft, run_content_pipeline
 from api.services.approval_service import ApprovalService
+from api.services.telegram_service import TelegramService
 from api.services.whatsapp_service import WhatsAppService
 from config.settings import settings
 from database.models import Post, PostStatus
 from database.repositories import RepositoryManager, get_repository_manager
+from integrations.telegram.mock import MockTelegramProvider
+from integrations.telegram.provider import get_telegram_provider
 from integrations.whatsapp.mock import MockWhatsAppProvider
 from integrations.whatsapp.provider import get_whatsapp_provider
 
@@ -41,9 +45,11 @@ class DailyRunResult(BaseModel):
     topic: Optional[str] = Field(default=None, description="Topic of the post")
     approval_token: Optional[str] = Field(default=None, description="Approval token generated")
     approval_url: Optional[str] = Field(default=None, description="Approval URL link")
+    telegram_message_id: Optional[str] = Field(default=None, description="Telegram dispatched message ID")
     whatsapp_message_id: Optional[str] = Field(default=None, description="WhatsApp dispatched message ID")
     error: Optional[str] = Field(default=None, description="Error message if run failed")
     message: str = Field(..., description="Human-readable execution outcome summary")
+
 
 
 class DailyOrchestrator:
@@ -55,6 +61,8 @@ class DailyOrchestrator:
         gemini_client: Optional[Any] = None,
         approval_service: Optional[ApprovalService] = None,
         whatsapp_service: Optional[WhatsAppService] = None,
+        telegram_service: Optional[TelegramService] = None,
+        image_provider: Optional[BaseImageProvider] = None,
         use_in_memory_db: bool = False,
         company_dir: Optional[Path] = None,
         prompts_dir: Optional[Path] = None,
@@ -63,11 +71,14 @@ class DailyOrchestrator:
         self.use_in_memory_db = use_in_memory_db
         self.repos = repo_manager or get_repository_manager(use_in_memory=use_in_memory_db)
         self.gemini_client = gemini_client
+        self.image_provider = image_provider
         self.approval_service = approval_service or ApprovalService(
             repo_manager=self.repos,
             gemini_client=self.gemini_client,
+            image_provider=self.image_provider,
         )
         self.whatsapp_service = whatsapp_service
+        self.telegram_service = telegram_service
         self.company_dir = company_dir
         self.prompts_dir = prompts_dir
         self.posts_dir = posts_dir
@@ -85,17 +96,31 @@ class DailyOrchestrator:
         missing_errors: List[str] = []
 
         if clean_mode == "live":
+            # Determine active approval provider
+            provider = (settings.APPROVAL_PROVIDER or "telegram").lower().strip()
+            if self.whatsapp_service is not None and self.telegram_service is None:
+                provider = "whatsapp"
+
             # In LIVE mode, strictly verify all end-to-end production requirements
             required_live_vars = [
                 ("GEMINI_API_KEY", settings.GEMINI_API_KEY),
                 ("SUPABASE_URL", settings.SUPABASE_URL),
                 ("SUPABASE_KEY", settings.SUPABASE_KEY),
-                ("WHATSAPP_ACCESS_TOKEN", settings.WHATSAPP_ACCESS_TOKEN),
-                ("WHATSAPP_PHONE_NUMBER_ID", settings.WHATSAPP_PHONE_NUMBER_ID),
-                ("WHATSAPP_FOUNDER_PHONE", settings.WHATSAPP_FOUNDER_PHONE),
                 ("LINKEDIN_ACCESS_TOKEN", settings.LINKEDIN_ACCESS_TOKEN),
                 ("LINKEDIN_ORGANIZATION_ID", settings.LINKEDIN_ORGANIZATION_ID),
             ]
+
+            if provider == "telegram":
+                required_live_vars.extend([
+                    ("TELEGRAM_BOT_TOKEN", settings.TELEGRAM_BOT_TOKEN),
+                    ("TELEGRAM_FOUNDER_CHAT_ID", settings.TELEGRAM_FOUNDER_CHAT_ID),
+                ])
+            else:
+                required_live_vars.extend([
+                    ("WHATSAPP_ACCESS_TOKEN", settings.WHATSAPP_ACCESS_TOKEN),
+                    ("WHATSAPP_PHONE_NUMBER_ID", settings.WHATSAPP_PHONE_NUMBER_ID),
+                    ("WHATSAPP_FOUNDER_PHONE", settings.WHATSAPP_FOUNDER_PHONE),
+                ])
 
             for var_name, var_val in required_live_vars:
                 val_str = str(var_val or "").strip()
@@ -107,6 +132,7 @@ class DailyOrchestrator:
                     f"LIVE mode cannot proceed: missing or placeholder credentials for: "
                     f"{', '.join(missing_errors)}. Refusing to start live external operations."
                 )
+
 
         elif clean_mode == "mock":
             # In MOCK mode, if no mock gemini client is injected, verify GEMINI_API_KEY is configured
@@ -209,6 +235,22 @@ class DailyOrchestrator:
 
         # 3. Content Pipeline Execution
         logger.info("[INFO] Loading company knowledge and generating LinkedIn content draft...")
+        active_image_provider = self.image_provider
+        if active_image_provider is None:
+            if clean_mode == "mock":
+                from agent.image_generator import MockImageProvider
+                active_image_provider = MockImageProvider()
+            else:
+                from agent.image_generator import GeminiImageProvider
+                from api.services.storage_service import SupabaseStorageService
+                active_image_provider = GeminiImageProvider(
+                    client=self.gemini_client,
+                    storage_service=SupabaseStorageService(),
+                )
+
+        if getattr(self.approval_service, "image_provider", None) is None:
+            self.approval_service.image_provider = active_image_provider
+
         try:
             draft: LinkedInDraft = run_content_pipeline(
                 client=self.gemini_client,
@@ -219,6 +261,7 @@ class DailyOrchestrator:
                 prompts_dir=self.prompts_dir,
                 posts_dir=self.posts_dir,
                 use_in_memory=self.use_in_memory_db,
+                image_provider=active_image_provider,
             )
             logger.info(f"[INFO] Draft created: {draft.post_id} (Revision {draft.revision})")
             logger.info(f"[INFO] Topic: {draft.topic}")
@@ -244,38 +287,79 @@ class DailyOrchestrator:
             logger.error(f"[ERROR] {err_msg}")
             raise DailyOrchestrationError(err_msg) from e
 
-        # 5. WhatsApp Approval Notification Dispatch
-        logger.info(f"[INFO] Preparing WhatsApp notification for post '{draft.post_id}'...")
+        # 5. Approval Notification Dispatch (Telegram by default, or WhatsApp)
+        provider_type = (settings.APPROVAL_PROVIDER or "telegram").lower().strip()
+        if self.whatsapp_service is not None and self.telegram_service is None:
+            provider_type = "whatsapp"
+
+        logger.info(f"[INFO] Preparing approval notification via {provider_type.upper()} for post '{draft.post_id}'...")
+
+        telegram_msg_id = None
+        whatsapp_msg_id = None
+
         try:
-            whatsapp_svc = self.whatsapp_service
-            if whatsapp_svc is None:
-                if clean_mode == "mock":
-                    mock_provider = MockWhatsAppProvider()
-                    whatsapp_svc = WhatsAppService(
-                        approval_service=self.approval_service,
-                        provider=mock_provider,
-                    )
-                else:
-                    whatsapp_svc = WhatsAppService(
-                        approval_service=self.approval_service,
-                        provider=get_whatsapp_provider("meta"),
-                    )
+            if provider_type == "telegram":
+                tg_svc = self.telegram_service
+                if tg_svc is None:
+                    if clean_mode == "mock":
+                        mock_provider = MockTelegramProvider()
+                        tg_svc = TelegramService(
+                            approval_service=self.approval_service,
+                            provider=mock_provider,
+                        )
+                    else:
+                        tg_svc = TelegramService(
+                            approval_service=self.approval_service,
+                            provider=get_telegram_provider("telegram"),
+                        )
 
-            notification_res = whatsapp_svc.send_post_approval_notification(
-                post_id=draft.post_id,
-            )
-
-            if not notification_res.success:
-                raise DailyOrchestrationError(
-                    f"WhatsApp provider returned error: {notification_res.error}"
+                notification_res = tg_svc.send_post_approval_notification(
+                    post_id=draft.post_id,
                 )
 
-            logger.info(
-                f"[INFO] WhatsApp approval notification sent successfully "
-                f"(Provider: {notification_res.provider}, Message ID: {notification_res.message_id})"
-            )
+                if not notification_res.success:
+                    raise DailyOrchestrationError(
+                        f"Telegram provider returned error: {notification_res.error}"
+                    )
+
+                telegram_msg_id = notification_res.message_id
+                logger.info(
+                    f"[INFO] Telegram approval notification sent successfully "
+                    f"(Provider: {notification_res.provider}, Message ID: {notification_res.message_id})"
+                )
+
+            else:
+                wa_svc = self.whatsapp_service
+                if wa_svc is None:
+                    if clean_mode == "mock":
+                        mock_provider = MockWhatsAppProvider()
+                        wa_svc = WhatsAppService(
+                            approval_service=self.approval_service,
+                            provider=mock_provider,
+                        )
+                    else:
+                        wa_svc = WhatsAppService(
+                            approval_service=self.approval_service,
+                            provider=get_whatsapp_provider("meta"),
+                        )
+
+                notification_res = wa_svc.send_post_approval_notification(
+                    post_id=draft.post_id,
+                )
+
+                if not notification_res.success:
+                    raise DailyOrchestrationError(
+                        f"WhatsApp provider returned error: {notification_res.error}"
+                    )
+
+                whatsapp_msg_id = notification_res.message_id
+                logger.info(
+                    f"[INFO] WhatsApp approval notification sent successfully "
+                    f"(Provider: {notification_res.provider}, Message ID: {notification_res.message_id})"
+                )
+
         except Exception as e:
-            err_msg = f"WhatsApp notification dispatch failed: {e}"
+            err_msg = f"{provider_type.capitalize()} notification dispatch failed: {e}"
             logger.error(f"[ERROR] {err_msg}")
             raise DailyOrchestrationError(err_msg) from e
 
@@ -293,6 +377,8 @@ class DailyOrchestrator:
             topic=draft.topic,
             approval_token=approval_res.approval_token,
             approval_url=approval_res.approval_url,
-            whatsapp_message_id=notification_res.message_id,
-            message=f"Post '{draft.post_id}' generated and approval notification sent via WhatsApp.",
+            telegram_message_id=telegram_msg_id,
+            whatsapp_message_id=whatsapp_msg_id,
+            message=f"Post '{draft.post_id}' generated and approval notification sent via {provider_type.capitalize()}.",
         )
+

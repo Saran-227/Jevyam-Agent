@@ -70,7 +70,7 @@ def sample_approved_post(mock_repo_manager):
         call_to_action="How do you handle retries?",
         visual_concept="Architecture diagram",
         image_brief=brief,
-        image_url="https://cdn.jevyam.com/visuals/jvy-001.png",
+        image_url=None,
         linkedin_target=LinkedInTarget.COMPANY_PAGE,
     )
     mock_repo_manager.posts.create(post)
@@ -88,7 +88,7 @@ def sample_approved_post(mock_repo_manager):
             call_to_action=post.call_to_action,
             visual_concept=post.visual_concept,
             image_brief=brief,
-            image_url=post.image_url,
+            image_url=None,
         )
     )
     # Seed approved approval record
@@ -475,3 +475,317 @@ def test_publishing_api_endpoints(mock_repo_manager, sample_approved_post):
     audit_data = audit_resp.json()
     assert audit_data["count"] == 1
     assert audit_data["publications"][0]["external_post_id"] == "urn:li:share:API_PUB_999"
+
+
+# ==============================================================================
+# 13. Test/Dry-Run Mode: Never calls real LinkedIn API
+# ==============================================================================
+def test_publishing_service_mock_mode_never_calls_linkedin_client(mock_repo_manager, sample_approved_post):
+    """Verify that in mock_mode, publishing records a successful publication in DB but never calls LinkedInClient."""
+    mock_client = MagicMock()
+    mock_client.organization_urn = "urn:li:organization:12345678"
+    mock_client.publish_text_post.side_effect = RuntimeError("Real LinkedIn API should NEVER be called in mock mode!")
+
+    publisher = LinkedInPublisher(client=mock_client)
+    pub_service = PublishingService(
+        repo_manager=mock_repo_manager,
+        publisher=publisher,
+        mock_mode=True,
+    )
+
+    res = pub_service.publish_approved_post(sample_approved_post.post_id)
+
+    assert res["status"] == "published"
+    assert res["is_duplicate"] is False
+    assert res["external_post_id"].startswith("urn:li:share:mock_")
+    assert "/feed/update/urn:li:share:mock_" in res["post_url"]
+
+    # Verify zero calls to external LinkedIn API client
+    mock_client.publish_text_post.assert_not_called()
+
+    # Verify post in database is PUBLISHED with mock post URN
+    post_in_db = mock_repo_manager.posts.get_by_post_id(sample_approved_post.post_id)
+    assert post_in_db.status == PostStatus.PUBLISHED
+    assert post_in_db.linkedin_post_id == res["external_post_id"]
+
+    # Verify publication audit record is PUBLISHED
+    publications = mock_repo_manager.publications.get_by_post_id(sample_approved_post.post_id)
+    assert len(publications) == 1
+    assert publications[0].status == PublicationStatus.PUBLISHED
+    assert publications[0].external_post_id == res["external_post_id"]
+
+
+def test_approval_service_dry_run_auto_publish_never_calls_linkedin(mock_repo_manager):
+    """Verify ApprovalService auto-publish in dry-run mode completes publication without calling external LinkedIn API."""
+    from unittest.mock import patch
+    from config.settings import settings
+
+    brief = ImageBrief(
+        visual_concept="V", style="S", composition="C", color_direction="CD", text_on_image="T"
+    )
+    post_id = "JVY-20261013-DRY"
+    post = Post(
+        post_id=post_id,
+        status=PostStatus.PENDING_APPROVAL,
+        current_revision=1,
+        content_type="engineering",
+        topic="Dry Run Testing",
+        angle="Safe testing",
+        target_audience="Engineers",
+        hook="Testing safety",
+        caption="Safe testing caption",
+        hashtags=["#Safety"],
+        call_to_action="CTA",
+        visual_concept="V",
+        image_brief=brief,
+    )
+    mock_repo_manager.posts.create(post)
+    mock_repo_manager.revisions.create(
+        PostRevision(
+            post_id=post_id,
+            revision_number=1,
+            topic=post.topic,
+            angle=post.angle,
+            content_type=post.content_type,
+            target_audience=post.target_audience,
+            hook=post.hook,
+            caption=post.caption,
+            hashtags=post.hashtags,
+            call_to_action=post.call_to_action,
+            visual_concept=post.visual_concept,
+            image_brief=brief,
+        )
+    )
+
+    approval_service = ApprovalService(repo_manager=mock_repo_manager)
+    create_res = approval_service.create_approval_request(post_id)
+    token = create_res.approval_token
+
+    with patch.object(settings, "DRY_RUN", True), patch.object(settings, "LINKEDIN_MOCK_PUBLISHING", True):
+        with patch("integrations.linkedin.client.LinkedInClient.publish_text_post") as mock_real_call:
+            mock_real_call.side_effect = RuntimeError("External LinkedIn publish must not be called!")
+
+            action_res = approval_service.approve_post(token=token, auto_publish=True)
+
+            assert action_res.status == "approved"
+            assert action_res.published is True
+            assert action_res.external_post_id.startswith("urn:li:share:mock_")
+            mock_real_call.assert_not_called()
+
+            # Verify post in DB is PUBLISHED
+            post_in_db = mock_repo_manager.posts.get_by_post_id(post_id)
+            assert post_in_db.status == PostStatus.PUBLISHED
+            assert post_in_db.linkedin_post_id == action_res.external_post_id
+
+
+# ==============================================================================
+# 15. LinkedIn Image Publishing: Upload flow, binary upload, and media post creation
+# ==============================================================================
+def test_linkedin_image_upload_and_publication(mock_repo_manager):
+    """Test full image upload flow: initializeUpload -> PUT binary -> POST /rest/posts with media."""
+    brief = ImageBrief(
+        visual_concept="Modern cloud architecture",
+        style="Isometric 3D",
+        composition="Center",
+        color_direction="Navy and Cyan",
+        text_on_image="",
+    )
+    post_id = "JVY-20261013-IMG1"
+    image_url = "https://mock-supabase.co/storage/v1/object/public/post-images/test.png"
+    post = Post(
+        post_id=post_id,
+        status=PostStatus.APPROVED,
+        current_revision=1,
+        content_type="engineering",
+        topic="Cloud Architecture",
+        angle="Engineering depth",
+        target_audience="CTOs",
+        hook="Building resilient systems",
+        caption="Modern engineering demands clean decoupling and rock-solid retries.",
+        hashtags=["#Cloud", "#Architecture"],
+        call_to_action="Read more",
+        visual_concept="Modern cloud architecture",
+        image_url=image_url,
+        image_brief=brief,
+    )
+    mock_repo_manager.posts.create(post)
+    mock_repo_manager.revisions.create(
+        PostRevision(
+            post_id=post_id,
+            revision_number=1,
+            topic=post.topic,
+            angle=post.angle,
+            content_type=post.content_type,
+            target_audience=post.target_audience,
+            hook=post.hook,
+            caption=post.caption,
+            hashtags=post.hashtags,
+            call_to_action=post.call_to_action,
+            visual_concept=post.visual_concept,
+            image_url=image_url,
+            image_brief=brief,
+        )
+    )
+
+    # Seed approval record
+    appr = mock_repo_manager.approvals.create_approval_request(post_id=post_id, revision_number=1)
+    mock_repo_manager.approvals.update_status(appr.approval_token, ApprovalStatus.APPROVED)
+
+    mock_http = MagicMock(spec=httpx.Client)
+
+    # 1. Download image from storage URL
+    img_download_resp = MagicMock()
+    img_download_resp.status_code = 200
+    img_download_resp.content = b"\x89PNG\r\n\x1a\nFakePngBytes"
+    img_download_resp.headers = {"Content-Type": "image/png"}
+
+    # 2. initializeUpload response
+    init_upload_resp = MagicMock()
+    init_upload_resp.status_code = 200
+    init_upload_resp.content = b'{"value": {"uploadUrl": "https://upload.linkedin.com/abc", "image": "urn:li:image:12345"}}'
+    init_upload_resp.json.return_value = {
+        "value": {
+            "uploadUrl": "https://upload.linkedin.com/abc",
+            "image": "urn:li:image:12345",
+        }
+    }
+
+    # 3. PUT binary response
+    put_binary_resp = MagicMock()
+    put_binary_resp.status_code = 201
+    put_binary_resp.content = b""
+
+    # 4. POST /rest/posts with media response
+    post_resp = MagicMock()
+    post_resp.status_code = 201
+    post_resp.headers = {"x-restli-id": "urn:li:share:img_share_999"}
+    post_resp.content = b'{"id": "urn:li:share:img_share_999"}'
+    post_resp.json.return_value = {"id": "urn:li:share:img_share_999"}
+
+    def mock_get(url, **kwargs):
+        if url == image_url:
+            return img_download_resp
+        return MagicMock(status_code=404)
+
+    def mock_post(url, **kwargs):
+        if "action=initializeUpload" in str(url):
+            return init_upload_resp
+        elif "/rest/posts" in str(url):
+            return post_resp
+        return MagicMock(status_code=404)
+
+    def mock_put(url, **kwargs):
+        if "upload.linkedin.com" in str(url):
+            return put_binary_resp
+        return MagicMock(status_code=404)
+
+    mock_http.get.side_effect = mock_get
+    mock_http.post.side_effect = mock_post
+    mock_http.put.side_effect = mock_put
+
+    client = LinkedInClient(
+        access_token="valid_token",
+        organization_id="12345678",
+        http_client=mock_http,
+    )
+    publisher = LinkedInPublisher(client=client)
+    publishing_service = PublishingService(repo_manager=mock_repo_manager, publisher=publisher)
+
+    result = publishing_service.publish_approved_post(post_id)
+
+    assert result["external_post_id"] == "urn:li:share:img_share_999"
+
+    updated_post = mock_repo_manager.posts.get_by_post_id(post_id)
+    assert updated_post.status == PostStatus.PUBLISHED
+    assert updated_post.linkedin_post_id == "urn:li:share:img_share_999"
+
+    pub_records = mock_repo_manager.publications.get_by_post_id(post_id)
+    assert len(pub_records) == 1
+    assert pub_records[0].status == PublicationStatus.PUBLISHED
+    assert pub_records[0].external_post_id == "urn:li:share:img_share_999"
+
+
+def test_linkedin_image_upload_permission_error(mock_repo_manager):
+    """Test that a 403 during image upload initialization clearly reports required scope."""
+    mock_http = MagicMock(spec=httpx.Client)
+
+    forbidden_resp = MagicMock()
+    forbidden_resp.status_code = 403
+    forbidden_resp.content = b'{"message": "Not enough permissions to access /images"}'
+    forbidden_resp.json.return_value = {"message": "Not enough permissions to access /images"}
+
+    mock_http.post.return_value = forbidden_resp
+
+    client = LinkedInClient(
+        access_token="valid_token",
+        organization_id="12345678",
+        http_client=mock_http,
+    )
+
+    with pytest.raises(LinkedInPermissionError) as exc_info:
+        client.initialize_image_upload()
+    assert "403" in str(exc_info.value)
+    assert "w_organization_social" in str(exc_info.value)
+
+
+def test_linkedin_mock_publishing_with_image(mock_repo_manager):
+    """Test that mock publishing handles image posts cleanly without network calls."""
+    brief = ImageBrief(
+        visual_concept="Mock concept",
+        style="Isometric",
+        composition="Center",
+        color_direction="Blue",
+        text_on_image="",
+    )
+    post_id = "JVY-20261013-IMG-MOCK"
+    image_url = "https://mock-supabase.co/storage/v1/object/public/post-images/mock.png"
+    post = Post(
+        post_id=post_id,
+        status=PostStatus.APPROVED,
+        current_revision=1,
+        content_type="engineering",
+        topic="Mock Image Testing",
+        angle="Safe Mocking",
+        target_audience="Developers",
+        hook="Testing mock images",
+        caption="Mock image publishing test caption.",
+        hashtags=["#Mock"],
+        call_to_action="CTA",
+        visual_concept="Mock concept",
+        image_url=image_url,
+        image_brief=brief,
+    )
+    mock_repo_manager.posts.create(post)
+    mock_repo_manager.revisions.create(
+        PostRevision(
+            post_id=post_id,
+            revision_number=1,
+            topic=post.topic,
+            angle=post.angle,
+            content_type=post.content_type,
+            target_audience=post.target_audience,
+            hook=post.hook,
+            caption=post.caption,
+            hashtags=post.hashtags,
+            call_to_action=post.call_to_action,
+            visual_concept=post.visual_concept,
+            image_url=image_url,
+            image_brief=brief,
+        )
+    )
+    # Seed approval
+    appr = mock_repo_manager.approvals.create_approval_request(post_id=post_id, revision_number=1)
+    mock_repo_manager.approvals.update_status(appr.approval_token, ApprovalStatus.APPROVED)
+
+    publishing_service = PublishingService(repo_manager=mock_repo_manager)
+    # Using mock mode (default when client has no token or settings.LINKEDIN_MOCK_PUBLISHING=True)
+    result = publishing_service.publish_approved_post(post_id)
+
+    assert result["external_post_id"].startswith("urn:li:share:mock_")
+
+    updated = mock_repo_manager.posts.get_by_post_id(post_id)
+    assert updated.status == PostStatus.PUBLISHED
+    assert updated.linkedin_post_id.startswith("urn:li:share:mock_")
+
+
+
