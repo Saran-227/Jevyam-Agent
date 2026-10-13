@@ -14,13 +14,23 @@ from google import genai
 from agent.exceptions import (
     ContentGenerationError,
     DuplicateContentError,
+    ImageGenerationError,
+    ImageRequiredError,
+    ImageStorageError,
 )
-from agent.image_generator import BaseImageProvider, ImageBrief, generate_image_brief
+from agent.image_generator import (
+    BaseImageProvider,
+    ImageBrief,
+    generate_image_brief,
+    is_valid_image_url,
+    resolve_image_provider,
+)
 from agent.knowledge import CompanyKnowledge, load_company_knowledge
 from agent.prompts import render_regeneration_prompt
 from agent.repetition import check_repetition
 from agent.strategist import ContentIdea, format_previous_posts_summary, select_content_idea
 from agent.writer import LinkedInPostContent, generate_linkedin_post
+from config.settings import settings
 from database.models import Post, PostRevision, PostStatus
 from database.repositories import RepositoryManager, get_repository_manager
 from integrations.gemini import generate_structured_content, get_gemini_client
@@ -116,6 +126,7 @@ def run_content_pipeline(
     use_in_memory: Optional[bool] = None,
     save_local_copy: bool = True,
     image_provider: Optional[BaseImageProvider] = None,
+    require_image: Optional[bool] = None,
 ) -> LinkedInDraft:
     """Execute the end-to-end LinkedIn content generation pipeline.
 
@@ -133,6 +144,7 @@ def run_content_pipeline(
     Raises:
         DuplicateContentError: If no non-repetitive idea is found within max_retries.
         ContentGenerationError: If generation fails unexpectedly.
+        ImageRequiredError: If an image is required but missing or failed generation/upload.
     """
     ai_client = client or get_gemini_client()
     company_knowledge = load_company_knowledge(company_dir)
@@ -226,17 +238,53 @@ def run_content_pipeline(
         repo_manager=repos,
     )
 
-    # 5. Generate companion visual if image_provider is supplied
+    # 5. Determine whether image is required and resolve image provider
+    should_require_image = (
+        getattr(settings, "REQUIRE_POST_IMAGE", True)
+        if require_image is None
+        else require_image
+    )
+
+    active_img_provider = image_provider
+    if active_img_provider is None:
+        in_mem = use_in_memory
+        if in_mem is None and repo_manager is not None:
+            in_mem = (
+                getattr(repo_manager, "is_in_memory", False)
+                or repo_manager.__class__.__name__ == "InMemoryRepositoryManager"
+            )
+        active_img_provider = resolve_image_provider(
+            client=ai_client,
+            use_in_memory=in_mem,
+        )
+
     image_url: Optional[str] = None
-    if image_provider is not None:
+    if active_img_provider is not None:
         try:
-            image_url = image_provider.generate_image(
+            image_url = active_img_provider.generate_image(
                 brief=image_brief,
                 post_id=post_id,
                 revision=1,
             )
+        except (ImageGenerationError, ImageStorageError) as e:
+            if should_require_image:
+                raise ImageRequiredError(
+                    f"Post '{post_id}' requires a companion image, but image creation/storage failed: {e}"
+                ) from e
+            logger.warning(f"[WARN] Image creation failed for post '{post_id}': {e}")
         except Exception as e:
-            raise ContentGenerationError(f"Companion image generation failed: {e}") from e
+            if should_require_image:
+                raise ImageRequiredError(
+                    f"Post '{post_id}' requires a companion image, but unexpected error occurred: {e}"
+                ) from e
+            logger.warning(f"[WARN] Unexpected image generation failure for post '{post_id}': {e}")
+
+    # Fail closed: if an image is required, verify a valid stored URL exists before persisting
+    if should_require_image and not is_valid_image_url(image_url):
+        raise ImageRequiredError(
+            f"Post '{post_id}' requires a valid companion image URL, but got '{image_url}'. "
+            "Pipeline failed closed before persisting unapproved draft."
+        )
 
     # Lookup company
     company = repos.companies.get_by_slug("jevyam")
@@ -320,6 +368,7 @@ def regenerate_draft(
     use_in_memory: Optional[bool] = None,
     save_local_copy: bool = True,
     image_provider: Optional[BaseImageProvider] = None,
+    require_image: Optional[bool] = None,
 ) -> LinkedInDraft:
     """Regenerate a draft by intentionally pivoting topic, angle, hook, or structure.
 
@@ -446,17 +495,53 @@ def regenerate_draft(
         prompts_dir=prompts_dir,
     )
 
-    # Generate companion visual for new revision if provider is supplied
+    # 5. Determine whether image is required and resolve image provider for new revision
+    should_require_image = (
+        getattr(settings, "REQUIRE_POST_IMAGE", True)
+        if require_image is None
+        else require_image
+    )
+
+    active_img_provider = image_provider
+    if active_img_provider is None:
+        in_mem = use_in_memory
+        if in_mem is None and repo_manager is not None:
+            in_mem = (
+                getattr(repo_manager, "is_in_memory", False)
+                or repo_manager.__class__.__name__ == "InMemoryRepositoryManager"
+            )
+        active_img_provider = resolve_image_provider(
+            client=ai_client,
+            use_in_memory=in_mem,
+        )
+
     image_url: Optional[str] = None
-    if image_provider is not None:
+    if active_img_provider is not None:
         try:
-            image_url = image_provider.generate_image(
+            image_url = active_img_provider.generate_image(
                 brief=image_brief,
                 post_id=post_id,
                 revision=next_rev_num,
             )
+        except (ImageGenerationError, ImageStorageError) as e:
+            if should_require_image:
+                raise ImageRequiredError(
+                    f"Post '{post_id}' requires a companion image for revision {next_rev_num}, but generation/storage failed: {e}"
+                ) from e
+            logger.warning(f"[WARN] Image generation failed during draft regeneration for '{post_id}': {e}")
         except Exception as e:
-            raise ContentGenerationError(f"Image generation failed during draft regeneration: {e}") from e
+            if should_require_image:
+                raise ImageRequiredError(
+                    f"Post '{post_id}' requires a companion image for revision {next_rev_num}, but unexpected error occurred: {e}"
+                ) from e
+            logger.warning(f"[WARN] Unexpected image generation failure for '{post_id}': {e}")
+
+    # Fail closed: if an image is required, verify a valid stored URL exists before persisting new revision
+    if should_require_image and not is_valid_image_url(image_url):
+        raise ImageRequiredError(
+            f"Post '{post_id}' requires a valid companion image URL for revision {next_rev_num}, but got '{image_url}'. "
+            "Regeneration failed closed before persisting new revision."
+        )
 
     # Persist NEW revision snapshot to post_revisions
     new_rev = PostRevision(

@@ -6,6 +6,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
+from agent.image_generator import is_valid_image_url
+from config.settings import settings
 from integrations.whatsapp.base import BaseWhatsAppProvider
 from integrations.whatsapp.models import (
     WhatsAppApprovalMessagePayload,
@@ -136,6 +138,19 @@ class MetaWhatsAppCloudProvider(BaseWhatsAppProvider):
         recipient_phone: Optional[str] = None,
     ) -> WhatsAppMessageResponse:
         target = recipient_phone or payload.recipient_phone or self.founder_phone
+
+        has_valid_image = is_valid_image_url(payload.image_url)
+        if getattr(settings, "REQUIRE_POST_IMAGE", True) and not has_valid_image:
+            err_msg = (
+                f"Post '{payload.post_id}' requires a companion image URL, but got '{payload.image_url}'. "
+                "Refusing to send text-only WhatsApp approval message (fail-closed)."
+            )
+            logger.error(f"[ERROR] {err_msg}")
+            return WhatsAppMessageResponse(
+                success=False,
+                recipient_phone=target,
+                error=err_msg,
+            )
 
         # Assemble formatted body text
         hashtags_str = " ".join(payload.hashtags) if payload.hashtags else ""

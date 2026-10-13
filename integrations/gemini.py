@@ -2,6 +2,7 @@
 
 from typing import Optional, Tuple, Type, TypeVar
 import logging
+import os
 import random
 import time
 from pydantic import BaseModel, ValidationError
@@ -56,6 +57,11 @@ def _is_transient_error(e: Exception) -> bool:
             "PERMISSION_DENIED",
             "NOT_FOUND",
         ):
+            return False
+
+        # If zero quota limit is explicitly stated, it is a hard quota configuration, not a temporary spike
+        err_msg_lower = str(e).lower()
+        if "limit: 0" in err_msg_lower or "limit:0" in err_msg_lower:
             return False
 
         # Transient HTTP status codes
@@ -191,6 +197,7 @@ def generate_structured_content(
     schema: Type[T],
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
+    fallback_model: Optional[str] = None,
 ) -> T:
     """Generate structured output validated against a Pydantic model.
 
@@ -200,6 +207,7 @@ def generate_structured_content(
         schema: Pydantic model class for expected output.
         model: Gemini model identifier (defaults to settings.GEMINI_MODEL).
         system_instruction: Optional system instruction string.
+        fallback_model: Optional fallback model identifier (defaults to settings.GEMINI_FALLBACK_MODEL).
 
     Returns:
         Instance of schema populated with model output.
@@ -208,47 +216,77 @@ def generate_structured_content(
         GeminiAPIError: If the remote API call fails.
         InvalidGeminiResponseError: If response cannot be parsed or validated.
     """
-    chosen_model = model or settings.GEMINI_MODEL
+    primary_model = model or settings.GEMINI_MODEL
+    configured_fallback = (
+        fallback_model
+        if fallback_model is not None
+        else getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+    )
+
+    candidate_models = [primary_model]
+    if (
+        configured_fallback
+        and configured_fallback.strip()
+        and configured_fallback.strip() != primary_model
+    ):
+        candidate_models.append(configured_fallback.strip())
+
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=schema,
         system_instruction=system_instruction,
     )
 
-    response = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = client.models.generate_content(
-                model=chosen_model,
-                contents=prompt,
-                config=config,
-            )
-            break
-        except Exception as e:
-            if attempt < MAX_RETRIES and _is_transient_error(e):
-                backoff = _calculate_backoff(attempt, e)
-                logger.warning(
-                    f"Gemini API transient issue on attempt {attempt}/{MAX_RETRIES} ({e}). "
-                    f"Retrying in {backoff:.1f}s..."
+    for current_model in candidate_models:
+        has_next_fallback = current_model != candidate_models[-1]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=prompt,
+                    config=config,
                 )
-                time.sleep(backoff)
-            else:
-                mapped_err = _map_gemini_error(e)
-                raise mapped_err from e
+                if not response or not response.text:
+                    raise InvalidGeminiResponseError("Gemini returned an empty response.")
 
-    if not response or not response.text:
-        raise InvalidGeminiResponseError("Gemini returned an empty response.")
+                try:
+                    return schema.model_validate_json(response.text)
+                except ValidationError as e:
+                    raise InvalidGeminiResponseError(
+                        f"Failed to validate Gemini response against schema {schema.__name__}: {e}"
+                    ) from e
+                except Exception as e:
+                    raise InvalidGeminiResponseError(
+                        f"Failed to parse Gemini JSON response: {e}"
+                    ) from e
+            except InvalidGeminiResponseError:
+                # Permanent validation error - do not retry or fallback
+                raise
+            except Exception as e:
+                if not _is_transient_error(e):
+                    mapped_err = _map_gemini_error(e)
+                    raise mapped_err from e
 
-    try:
-        return schema.model_validate_json(response.text)
-    except ValidationError as e:
-        raise InvalidGeminiResponseError(
-            f"Failed to validate Gemini response against schema {schema.__name__}: {e}"
-        ) from e
-    except Exception as e:
-        raise InvalidGeminiResponseError(
-            f"Failed to parse Gemini JSON response: {e}"
-        ) from e
+                if attempt < MAX_RETRIES:
+                    backoff = _calculate_backoff(attempt, e)
+                    logger.warning(
+                        f"Gemini API transient issue on model '{current_model}' (attempt {attempt}/{MAX_RETRIES}): {e}. "
+                        f"Retrying in {backoff:.1f}s..."
+                    )
+                    time.sleep(backoff)
+                else:
+                    if has_next_fallback:
+                        next_model = candidate_models[candidate_models.index(current_model) + 1]
+                        logger.warning(
+                            f"Primary Gemini model '{current_model}' exhausted {MAX_RETRIES} attempts due to transient error: {e}. "
+                            f"Failing over to fallback text model '{next_model}'..."
+                        )
+                        break
+                    else:
+                        mapped_err = _map_gemini_error(e)
+                        raise mapped_err from e
+
+    raise InvalidGeminiResponseError("Gemini returned an empty response.")
 
 
 def generate_text(
@@ -256,6 +294,7 @@ def generate_text(
     prompt: str,
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
+    fallback_model: Optional[str] = None,
 ) -> str:
     """Generate raw text content from Gemini.
 
@@ -263,38 +302,66 @@ def generate_text(
         GeminiAPIError: If the API call fails.
         InvalidGeminiResponseError: If response text is empty.
     """
-    chosen_model = model or settings.GEMINI_MODEL
+    primary_model = model or settings.GEMINI_MODEL
+    configured_fallback = (
+        fallback_model
+        if fallback_model is not None
+        else getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+    )
+
+    candidate_models = [primary_model]
+    if (
+        configured_fallback
+        and configured_fallback.strip()
+        and configured_fallback.strip() != primary_model
+    ):
+        candidate_models.append(configured_fallback.strip())
+
     config = (
         types.GenerateContentConfig(system_instruction=system_instruction)
         if system_instruction
         else None
     )
 
-    response = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = client.models.generate_content(
-                model=chosen_model,
-                contents=prompt,
-                config=config,
-            )
-            break
-        except Exception as e:
-            if attempt < MAX_RETRIES and _is_transient_error(e):
-                backoff = _calculate_backoff(attempt, e)
-                logger.warning(
-                    f"Gemini API transient issue on attempt {attempt}/{MAX_RETRIES} ({e}). "
-                    f"Retrying in {backoff:.1f}s..."
+    for current_model in candidate_models:
+        has_next_fallback = current_model != candidate_models[-1]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=prompt,
+                    config=config,
                 )
-                time.sleep(backoff)
-            else:
-                mapped_err = _map_gemini_error(e)
-                raise mapped_err from e
+                if not response or not response.text:
+                    raise InvalidGeminiResponseError("Gemini returned an empty response.")
+                return response.text
+            except InvalidGeminiResponseError:
+                raise
+            except Exception as e:
+                if not _is_transient_error(e):
+                    mapped_err = _map_gemini_error(e)
+                    raise mapped_err from e
 
-    if not response or not response.text:
-        raise InvalidGeminiResponseError("Gemini returned an empty response.")
+                if attempt < MAX_RETRIES:
+                    backoff = _calculate_backoff(attempt, e)
+                    logger.warning(
+                        f"Gemini API transient issue on model '{current_model}' (attempt {attempt}/{MAX_RETRIES}): {e}. "
+                        f"Retrying in {backoff:.1f}s..."
+                    )
+                    time.sleep(backoff)
+                else:
+                    if has_next_fallback:
+                        next_model = candidate_models[candidate_models.index(current_model) + 1]
+                        logger.warning(
+                            f"Primary Gemini model '{current_model}' exhausted {MAX_RETRIES} attempts due to transient error: {e}. "
+                            f"Failing over to fallback text model '{next_model}'..."
+                        )
+                        break
+                    else:
+                        mapped_err = _map_gemini_error(e)
+                        raise mapped_err from e
 
-    return response.text
+    raise InvalidGeminiResponseError("Gemini returned an empty response.")
 
 
 def generate_gemini_image(

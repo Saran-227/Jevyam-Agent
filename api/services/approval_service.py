@@ -14,7 +14,7 @@ from agent.exceptions import (
     PostNotEligibleForApprovalError,
     PostNotFoundError,
 )
-from agent.image_generator import BaseImageProvider
+from agent.image_generator import BaseImageProvider, is_valid_image_url
 from agent.pipeline import regenerate_draft
 from api.schemas import (
     ApprovalActionResponse,
@@ -51,12 +51,14 @@ class ApprovalService:
         self,
         post_id: str,
         revision_number: Optional[int] = None,
+        require_image: Optional[bool] = None,
     ) -> CreateApprovalResponse:
         """Create a secure pending approval request for a post.
 
         Args:
             post_id: Business post ID (e.g. JVY-20260929-001).
             revision_number: Target revision number (defaults to current revision).
+            require_image: If True, asserts post has a valid companion visual URL before proceeding.
 
         Returns:
             CreateApprovalResponse with unguessable approval token and URL.
@@ -75,6 +77,11 @@ class ApprovalService:
         if post.status == PostStatus.PUBLISHED:
             raise PostNotEligibleForApprovalError(
                 f"Post '{post_id}' is already PUBLISHED and cannot be approved again."
+            )
+
+        if require_image and not is_valid_image_url(post.image_url):
+            raise PostNotEligibleForApprovalError(
+                f"Post '{post_id}' requires a valid companion image URL before creating an approval request (got '{post.image_url}')."
             )
 
         # Ensure post status is PENDING_APPROVAL

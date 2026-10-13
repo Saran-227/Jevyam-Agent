@@ -186,6 +186,7 @@ def test_gemini_503_exhausted_retries_raises_unavailable_error():
                 client=mock_client,
                 prompt="Test",
                 schema=SampleSchema,
+                fallback_model="",
             )
         assert mock_client.models.generate_content.call_count == MAX_RETRIES
         assert mock_sleep.call_count == MAX_RETRIES - 1
@@ -207,6 +208,7 @@ def test_gemini_429_rate_limit_error_exhausted():
                 client=mock_client,
                 prompt="Test",
                 schema=SampleSchema,
+                fallback_model="",
             )
         assert mock_client.models.generate_content.call_count == MAX_RETRIES
         assert "rate limit or quota exceeded" in str(exc_info.value)
@@ -237,9 +239,182 @@ def test_gemini_network_timeout_retry():
                 client=mock_client,
                 prompt="Test",
                 schema=SampleSchema,
+                fallback_model="",
             )
         assert mock_client.models.generate_content.call_count == MAX_RETRIES
         assert "network error" in str(exc_info.value).lower()
+
+
+def test_primary_model_failure_with_successful_fallback():
+    """Verify primary model 503 transient exhaustion falls back to fallback model and succeeds."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "High demand", "status": "UNAVAILABLE"}},
+    )
+    mock_resp = MagicMock()
+    mock_resp.text = '{"title": "Fallback Success", "score": 88}'
+    # Primary model fails MAX_RETRIES (3) times with 503, then fallback succeeds on 1st attempt
+    mock_client.models.generate_content.side_effect = [mock_503, mock_503, mock_503, mock_resp]
+
+    with patch("time.sleep") as mock_sleep:
+        res = generate_structured_content(
+            client=mock_client,
+            prompt="Test",
+            schema=SampleSchema,
+            model="gemini-3.8-flash",
+            fallback_model="gemini-3.1-flash-lite",
+        )
+        assert res.title == "Fallback Success"
+        assert res.score == 88
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES + 1
+        calls = mock_client.models.generate_content.call_args_list
+        for i in range(MAX_RETRIES):
+            assert calls[i].kwargs.get("model") == "gemini-3.8-flash"
+        assert calls[MAX_RETRIES].kwargs.get("model") == "gemini-3.1-flash-lite"
+        assert mock_sleep.call_count == MAX_RETRIES - 1
+
+
+def test_primary_model_failure_without_fallback():
+    """Verify primary model 503 error exhausts retries and raises GeminiUnavailableError when no fallback configured."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "Service Unavailable", "status": "UNAVAILABLE"}},
+    )
+    mock_client.models.generate_content.side_effect = mock_503
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiUnavailableError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+                fallback_model="",
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES
+        assert mock_sleep.call_count == MAX_RETRIES - 1
+        assert "service temporarily unavailable" in str(exc_info.value)
+
+
+def test_total_failure_primary_and_fallback_exhausted():
+    """Verify both primary and fallback models fail 503, exhausting all retries and raising GeminiUnavailableError."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "Overloaded", "status": "UNAVAILABLE"}},
+    )
+    mock_client.models.generate_content.side_effect = mock_503
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiUnavailableError) as exc_info:
+            generate_structured_content(
+                client=mock_client,
+                prompt="Test",
+                schema=SampleSchema,
+                model="gemini-3.8-flash",
+                fallback_model="gemini-3.1-flash-lite",
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES * 2
+        assert mock_sleep.call_count == (MAX_RETRIES - 1) * 2
+        assert "service temporarily unavailable" in str(exc_info.value)
+
+
+def test_generate_text_primary_failure_with_successful_fallback():
+    """Verify generate_text fails over to fallback model on transient 503 failures."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "High demand", "status": "UNAVAILABLE"}},
+    )
+    mock_resp = MagicMock()
+    mock_resp.text = "Fallback Text Output"
+    mock_client.models.generate_content.side_effect = [mock_503, mock_503, mock_503, mock_resp]
+
+    with patch("time.sleep") as mock_sleep:
+        res = generate_text(
+            client=mock_client,
+            prompt="Prompt",
+            model="gemini-3.8-flash",
+            fallback_model="gemini-3.1-flash-lite",
+        )
+        assert res == "Fallback Text Output"
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES + 1
+        calls = mock_client.models.generate_content.call_args_list
+        assert calls[-1].kwargs.get("model") == "gemini-3.1-flash-lite"
+
+
+def test_generate_text_total_failure():
+    """Verify generate_text raises GeminiUnavailableError when all models exhaust retries."""
+    mock_client = MagicMock()
+    mock_503 = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "High demand", "status": "UNAVAILABLE"}},
+    )
+    mock_client.models.generate_content.side_effect = mock_503
+
+    with patch("time.sleep") as mock_sleep:
+        with pytest.raises(GeminiUnavailableError):
+            generate_text(
+                client=mock_client,
+                prompt="Prompt",
+                model="gemini-3.8-flash",
+                fallback_model="gemini-3.1-flash-lite",
+            )
+        assert mock_client.models.generate_content.call_count == MAX_RETRIES * 2
+
+
+def test_failed_generation_does_not_create_duplicate_posts_or_send_telegram_approval(tmp_path):
+    """Verify that when Gemini generation fails, no duplicate posts are persisted and no Telegram approval is sent."""
+    from database.repositories import RepositoryManager
+    from database.repositories.companies import InMemoryCompanyRepository
+    from database.repositories.posts import InMemoryPostRepository
+    from database.repositories.revisions import InMemoryRevisionRepository
+    from database.repositories.approvals import InMemoryApprovalRepository
+    from database.repositories.publications import InMemoryPublicationRepository
+    from api.services.approval_service import ApprovalService
+    from api.services.telegram_service import TelegramService
+    from integrations.telegram.mock import MockTelegramProvider
+    from agent.orchestrator import DailyOrchestrator
+    from agent.exceptions import DailyOrchestrationError
+
+    repos = RepositoryManager(
+        companies=InMemoryCompanyRepository(),
+        posts=InMemoryPostRepository(),
+        revisions=InMemoryRevisionRepository(),
+        approvals=InMemoryApprovalRepository(),
+        publications=InMemoryPublicationRepository(),
+    )
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = APIError(
+        code=503,
+        response_json={"error": {"code": 503, "message": "High demand", "status": "UNAVAILABLE"}},
+    )
+    mock_tg_provider = MockTelegramProvider()
+    approval_svc = ApprovalService(repo_manager=repos, gemini_client=mock_client)
+    tg_svc = TelegramService(approval_service=approval_svc, provider=mock_tg_provider)
+
+    orchestrator = DailyOrchestrator(
+        repo_manager=repos,
+        gemini_client=mock_client,
+        approval_service=approval_svc,
+        telegram_service=tg_svc,
+        use_in_memory_db=True,
+        posts_dir=tmp_path,
+    )
+
+    with patch("time.sleep"):
+        with pytest.raises(DailyOrchestrationError):
+            orchestrator.run(mode="mock", date_str="20261013")
+
+    # 1. No post persisted in database
+    assert len(repos.posts.get_previous_posts()) == 0
+    # 2. No approval request created
+    assert len(repos.approvals._approvals) == 0
+    # 3. No Telegram approval notification dispatched
+    assert len(mock_tg_provider.sent_messages) == 0
+    # 4. No local JSON file created in posts_dir
+    assert list(tmp_path.glob("*.json")) == []
 
 
 def test_generate_text_transient_retry_and_success():

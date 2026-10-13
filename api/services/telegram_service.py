@@ -10,8 +10,10 @@ from agent.exceptions import (
     ApprovalInProgressError,
     ApprovalNotFoundError,
     ApprovalSupersededError,
+    PostNotEligibleForApprovalError,
     PostNotFoundError,
 )
+from agent.image_generator import is_valid_image_url
 from api.services.approval_service import ApprovalService
 from config.settings import settings
 from database.models import ApprovalStatus, PostStatus
@@ -48,6 +50,13 @@ class TelegramService:
         post = self.approval_service.repos.posts.get_by_post_id(post_id)
         if not post:
             raise PostNotFoundError(f"Post '{post_id}' does not exist.")
+
+        # Fail closed: reject text-only approval if companion image is required
+        if getattr(settings, "REQUIRE_POST_IMAGE", True) and not is_valid_image_url(post.image_url):
+            raise PostNotEligibleForApprovalError(
+                f"Post '{post_id}' does not have a valid companion image URL (got '{post.image_url}'). "
+                "Text-only Telegram approval is prohibited when REQUIRE_POST_IMAGE=True."
+            )
 
         # Find or create active approval request for this post's current revision
         existing_approvals = self.approval_service.repos.approvals.get_by_post_id(post_id)

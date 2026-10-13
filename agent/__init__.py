@@ -9,30 +9,14 @@ from agent.exceptions import (
     GeminiNetworkError,
     GeminiRateLimitError,
     GeminiUnavailableError,
+    ImageGenerationError,
+    ImageRequiredError,
+    ImageStorageError,
     InvalidGeminiResponseError,
     JevyamAgentError,
     MissingGeminiApiKeyError,
     MissingKnowledgeFileError,
 )
-from agent.image_generator import (
-    BaseImageProvider,
-    GeminiImageProvider,
-    ImageBrief,
-    MockImageProvider,
-    generate_image_brief,
-)
-from agent.knowledge import CompanyKnowledge, load_company_knowledge
-from agent.pipeline import (
-    LinkedInDraft,
-    generate_post_id,
-    load_previous_drafts,
-    regenerate_draft,
-    run_content_pipeline,
-    save_draft,
-)
-from agent.repetition import check_repetition
-from agent.strategist import ContentIdea, select_content_idea
-from agent.writer import LinkedInPostContent, generate_linkedin_post
 
 __all__ = [
     "CompanyKnowledge",
@@ -44,6 +28,10 @@ __all__ = [
     "ImageBrief",
     "generate_image_brief",
     "BaseImageProvider",
+    "GeminiImageProvider",
+    "MockImageProvider",
+    "resolve_image_provider",
+    "is_valid_image_url",
     "LinkedInDraft",
     "run_content_pipeline",
     "regenerate_draft",
@@ -63,4 +51,50 @@ __all__ = [
     "InvalidGeminiResponseError",
     "DuplicateContentError",
     "ContentGenerationError",
+    "ImageGenerationError",
+    "ImageStorageError",
+    "ImageRequiredError",
 ]
+
+
+def __getattr__(name: str):
+    if name in (
+        "BaseImageProvider",
+        "GeminiImageProvider",
+        "ImageBrief",
+        "MockImageProvider",
+        "resolve_image_provider",
+        "is_valid_image_url",
+        "generate_image_brief",
+    ):
+        from agent import image_generator
+
+        return getattr(image_generator, name)
+    if name in ("CompanyKnowledge", "load_company_knowledge"):
+        from agent import knowledge
+
+        return getattr(knowledge, name)
+    if name in (
+        "LinkedInDraft",
+        "generate_post_id",
+        "load_previous_drafts",
+        "regenerate_draft",
+        "run_content_pipeline",
+        "save_draft",
+    ):
+        from agent import pipeline
+
+        return getattr(pipeline, name)
+    if name in ("check_repetition",):
+        from agent import repetition
+
+        return getattr(repetition, name)
+    if name in ("ContentIdea", "select_content_idea"):
+        from agent import strategist
+
+        return getattr(strategist, name)
+    if name in ("LinkedInPostContent", "generate_linkedin_post"):
+        from agent import writer
+
+        return getattr(writer, name)
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

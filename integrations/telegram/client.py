@@ -8,6 +8,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
+from agent.image_generator import is_valid_image_url
 from config.settings import settings
 from integrations.telegram.base import BaseTelegramProvider
 from integrations.telegram.models import (
@@ -225,8 +226,24 @@ class TelegramApiProvider(BaseTelegramProvider):
         ]
         reply_markup = {"inline_keyboard": inline_keyboard}
 
+        has_valid_image = is_valid_image_url(payload.image_url)
+
+        # Fail closed: reject text-only approval if image is required
+        if getattr(settings, "REQUIRE_POST_IMAGE", True) and not has_valid_image:
+            err_msg = (
+                f"Post '{payload.post_id}' requires a companion image URL, but got '{payload.image_url}'. "
+                "Refusing to send text-only Telegram approval message (fail-closed)."
+            )
+            logger.error(f"[ERROR] {err_msg}")
+            return TelegramMessageResponse(
+                success=False,
+                chat_id=target_chat,
+                provider="telegram",
+                error=err_msg,
+            )
+
         # Case 1: Image URL is present and short caption fits (<= 1024 chars), sendPhoto with inline buttons
-        if payload.image_url and len(message_text) <= 1024:
+        if has_valid_image and len(message_text) <= 1024:
             photo_payload: Dict[str, Any] = {
                 "chat_id": target_chat,
                 "photo": payload.image_url,
@@ -255,7 +272,7 @@ class TelegramApiProvider(BaseTelegramProvider):
                 )
 
         # Case 2: Image URL is present but caption exceeds 1024 chars (linked messages: photo preview + text approval)
-        elif payload.image_url:
+        elif has_valid_image:
             photo_caption = (
                 f"<b>Jevyam Technologies — LinkedIn Visual Preview</b>\n"
                 f"<b>Revision:</b> #{payload.revision_number}\n"
@@ -307,7 +324,7 @@ class TelegramApiProvider(BaseTelegramProvider):
                     error=safe_err,
                 )
 
-        # Case 3: No image_url provided (plain text message)
+        # Case 3: No image_url provided (plain text message - only allowed when REQUIRE_POST_IMAGE is disabled)
         else:
             text_payload: Dict[str, Any] = {
                 "chat_id": target_chat,

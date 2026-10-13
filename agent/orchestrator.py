@@ -17,7 +17,11 @@ from agent.exceptions import (
     JevyamAgentError,
     MissingGeminiApiKeyError,
 )
-from agent.image_generator import BaseImageProvider
+from agent.image_generator import (
+    BaseImageProvider,
+    is_valid_image_url,
+    resolve_image_provider,
+)
 from agent.pipeline import LinkedInDraft, run_content_pipeline
 from api.services.approval_service import ApprovalService
 from api.services.telegram_service import TelegramService
@@ -241,11 +245,9 @@ class DailyOrchestrator:
                 from agent.image_generator import MockImageProvider
                 active_image_provider = MockImageProvider()
             else:
-                from agent.image_generator import GeminiImageProvider
-                from api.services.storage_service import SupabaseStorageService
-                active_image_provider = GeminiImageProvider(
+                active_image_provider = resolve_image_provider(
                     client=self.gemini_client,
-                    storage_service=SupabaseStorageService(),
+                    use_in_memory=self.use_in_memory_db,
                 )
 
         if getattr(self.approval_service, "image_provider", None) is None:
@@ -269,6 +271,15 @@ class DailyOrchestrator:
             err_msg = f"Content generation pipeline failed: {e}"
             logger.error(f"[ERROR] {err_msg}")
             raise DailyOrchestrationError(err_msg) from e
+
+        # Fail closed: ensure draft has a valid image URL if image is required
+        if getattr(settings, "REQUIRE_POST_IMAGE", True) and not is_valid_image_url(draft.image_url):
+            err_msg = (
+                f"Daily draft '{draft.post_id}' does not have a valid companion image URL (got '{draft.image_url}'). "
+                "Orchestrator failing closed before approval request creation."
+            )
+            logger.error(f"[ERROR] {err_msg}")
+            raise DailyOrchestrationError(err_msg)
 
         # 4. Approval Request Creation
         logger.info(f"[INFO] Creating approval request for post '{draft.post_id}'...")

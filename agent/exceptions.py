@@ -71,6 +71,11 @@ class ImageStorageError(JevyamAgentError):
     pass
 
 
+class ImageRequiredError(ContentGenerationError):
+    """Raised when a companion image is required for a post but missing or generation/storage failed."""
+    pass
+
+
 from database.exceptions import (
     DatabaseError,
     InvalidStatusTransitionError,

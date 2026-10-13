@@ -129,10 +129,13 @@ def main() -> int:
         client.models.generate_content.side_effect = mock_generate_content
 
     try:
+        from agent.image_generator import MockImageProvider
+        img_provider = MockImageProvider() if args.mock else None
         draft = run_content_pipeline(
             client=client,
             current_date=args.date,
             recent_activity=args.activity,
+            image_provider=img_provider,
         )
         display_draft(draft)
         return 0

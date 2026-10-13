@@ -10,17 +10,54 @@ import logging
 from pathlib import Path
 import shutil
 import tempfile
+import re
+import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from google import genai
 
-from agent.exceptions import ImageGenerationError
+from agent.exceptions import ImageGenerationError, ImageStorageError
 from agent.prompts import render_image_brief_prompt
 from database.storage import BaseStorageService
 from config.settings import settings
-from integrations.gemini import generate_gemini_image, generate_structured_content
+import integrations.gemini as gemini_mod
 
 logger = logging.getLogger("jevyam.image_generator")
+
+
+def mask_secret_strings(text: Optional[str]) -> str:
+    """Mask sensitive tokens, keys, and authorization secrets from diagnostic or error strings."""
+    if not text:
+        return ""
+    s = str(text)
+    s = re.sub(r"(AIza[0-9A-Za-z-_]{35})", r"[MASKED_API_KEY]", s)
+    s = re.sub(r"(sb_publishable_[0-9A-Za-z-_]{20,})", r"[MASKED_SUPABASE_KEY]", s)
+    s = re.sub(r"(token=)[0-9A-Za-z-_]+", r"\1[MASKED_TOKEN]", s)
+    s = re.sub(r"(bot[0-9]+:)[0-9A-Za-z-_]+", r"\1[MASKED_BOT_TOKEN]", s)
+    s = re.sub(r"([0-9]{8,11}:[A-Za-z0-9_-]{30,})", r"[MASKED_TELEGRAM_TOKEN]", s)
+    return s
+
+
+def is_valid_image_url(url: Optional[str]) -> bool:
+    """Validate that an image URL is a non-empty HTTP/HTTPS string and not a literal placeholder."""
+    if not url or not isinstance(url, str):
+        return False
+    clean = url.strip()
+    if clean.lower() in ("none", "null", ""):
+        return False
+    return clean.startswith("http://") or clean.startswith("https://")
+
+
+class ImageGenerationDiagnostic(BaseModel):
+    """Safe diagnostic report for image generation and storage execution."""
+
+    provider_name: str
+    model: Optional[str] = None
+    generation_succeeded: bool = False
+    storage_succeeded: bool = False
+    image_url: Optional[str] = None
+    error_message: Optional[str] = None
+    duration_ms: float = 0.0
 
 
 class ImageBrief(BaseModel):
@@ -55,6 +92,9 @@ class ImageBrief(BaseModel):
 class BaseImageProvider(ABC):
     """Abstract interface for image generation providers."""
 
+    def __init__(self) -> None:
+        self.last_diagnostic: Optional[ImageGenerationDiagnostic] = None
+
     @abstractmethod
     def generate_image(
         self,
@@ -77,6 +117,12 @@ class PlaceholderImageProvider(BaseImageProvider):
         revision: int = 1,
         output_path: Optional[Path] = None,
     ) -> Optional[str]:
+        self.last_diagnostic = ImageGenerationDiagnostic(
+            provider_name="PlaceholderImageProvider",
+            generation_succeeded=False,
+            storage_succeeded=False,
+            error_message="Placeholder provider configured: no image generated.",
+        )
         return None
 
 
@@ -111,6 +157,7 @@ class GeminiImageProvider(BaseImageProvider):
         storage_service: Optional[BaseStorageService] = None,
         model: Optional[str] = None,
     ):
+        super().__init__()
         self._client = client
         self.storage_service = storage_service
         self.model = model or getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
@@ -141,21 +188,35 @@ class GeminiImageProvider(BaseImageProvider):
             Permanent public URL to the uploaded visual.
 
         Raises:
-            ImageGenerationError: If generation or storage fails.
+            ImageGenerationError: If remote generation fails.
+            ImageStorageError: If persistent upload fails.
         """
+        start_time = time.perf_counter()
         prompt = expand_image_prompt(brief)
         logger.info(f"Generating visual with model '{self.model}' for post '{post_id}' (rev #{revision})...")
 
+        temp_path: Optional[Path] = None
         try:
-            image_bytes, mime_type = generate_gemini_image(
+            image_bytes, mime_type = gemini_mod.generate_gemini_image(
                 client=self.client,
                 prompt=prompt,
                 model=self.model,
                 aspect_ratio=brief.aspect_ratio or "1:1",
             )
+            gen_ok = True
         except Exception as e:
-            logger.error(f"[ERROR] Gemini image generation failed: {e}")
-            raise ImageGenerationError(f"Gemini image generation failed: {e}") from e
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            safe_err = mask_secret_strings(str(e))
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="GeminiImageProvider",
+                model=self.model,
+                generation_succeeded=False,
+                storage_succeeded=False,
+                error_message=safe_err,
+                duration_ms=elapsed_ms,
+            )
+            logger.error(f"[ERROR] Gemini image generation failed ({elapsed_ms:.1f}ms): {safe_err}")
+            raise ImageGenerationError(f"Gemini image generation failed: {safe_err}") from e
 
         # Save to local temporary file only during processing
         temp_fd, temp_path_str = tempfile.mkstemp(suffix=".png")
@@ -169,26 +230,76 @@ class GeminiImageProvider(BaseImageProvider):
                 shutil.copyfile(temp_path, output_path)
 
             if self.storage_service is not None:
-                storage_url = self.storage_service.upload_image(
-                    post_id=post_id or "TEMP",
-                    revision=revision,
-                    image_bytes=image_bytes,
-                    mime_type=mime_type,
+                try:
+                    storage_url = self.storage_service.upload_image(
+                        post_id=post_id or "TEMP",
+                        revision=revision,
+                        image_bytes=image_bytes,
+                        mime_type=mime_type,
+                    )
+                except Exception as e:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    safe_err = mask_secret_strings(str(e))
+                    self.last_diagnostic = ImageGenerationDiagnostic(
+                        provider_name="GeminiImageProvider",
+                        model=self.model,
+                        generation_succeeded=True,
+                        storage_succeeded=False,
+                        error_message=safe_err,
+                        duration_ms=elapsed_ms,
+                    )
+                    logger.error(f"[ERROR] Persistent storage upload failed: {safe_err}")
+                    if isinstance(e, ImageStorageError):
+                        raise
+                    raise ImageStorageError(f"Failed to upload visual to storage: {safe_err}") from e
+
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                self.last_diagnostic = ImageGenerationDiagnostic(
+                    provider_name="GeminiImageProvider",
+                    model=self.model,
+                    generation_succeeded=True,
+                    storage_succeeded=True,
+                    image_url=mask_secret_strings(storage_url),
+                    duration_ms=elapsed_ms,
+                )
+                logger.info(
+                    f"Visual generation and storage completed successfully in {elapsed_ms:.1f}ms: "
+                    f"provider=GeminiImageProvider, model={self.model}, url={mask_secret_strings(storage_url)}"
                 )
                 return storage_url
 
-            return str(output_path or temp_path)
+            result_path = str(output_path or temp_path)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="GeminiImageProvider",
+                model=self.model,
+                generation_succeeded=True,
+                storage_succeeded=False,
+                image_url=result_path,
+                duration_ms=elapsed_ms,
+            )
+            return result_path
 
+        except (ImageGenerationError, ImageStorageError):
+            raise
         except Exception as e:
-            if isinstance(e, ImageGenerationError):
-                raise
-            logger.error(f"[ERROR] Failed processing or storing generated image: {e}")
-            raise ImageGenerationError(f"Failed to process and store generated image: {e}") from e
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            safe_err = mask_secret_strings(str(e))
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="GeminiImageProvider",
+                model=self.model,
+                generation_succeeded=gen_ok,
+                storage_succeeded=False,
+                error_message=safe_err,
+                duration_ms=elapsed_ms,
+            )
+            logger.error(f"[ERROR] Failed processing or storing generated image: {safe_err}")
+            raise ImageGenerationError(f"Failed to process and store generated image: {safe_err}") from e
 
         finally:
             # Guarantees local temporary file cleanup
             try:
-                if temp_path.exists():
+                if temp_path and temp_path.exists():
                     temp_path.unlink()
             except Exception:
                 pass
@@ -202,6 +313,7 @@ class MockImageProvider(BaseImageProvider):
         base_url: str = "https://mock-storage.supabase.co/storage/v1/object/public/post-images",
         should_fail: bool = False,
     ):
+        super().__init__()
         self.base_url = base_url.rstrip("/")
         self.should_fail = should_fail
         self.generated_images: List[Dict[str, Any]] = []
@@ -214,6 +326,12 @@ class MockImageProvider(BaseImageProvider):
         output_path: Optional[Path] = None,
     ) -> Optional[str]:
         if self.should_fail:
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="MockImageProvider",
+                generation_succeeded=False,
+                storage_succeeded=False,
+                error_message="Simulated mock image generation failure.",
+            )
             raise ImageGenerationError("Simulated mock image generation failure.")
 
         pid = post_id or "JVY-MOCK"
@@ -227,7 +345,46 @@ class MockImageProvider(BaseImageProvider):
         if output_path:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+
+        self.last_diagnostic = ImageGenerationDiagnostic(
+            provider_name="MockImageProvider",
+            generation_succeeded=True,
+            storage_succeeded=True,
+            image_url=url,
+        )
         return url
+
+
+def resolve_image_provider(
+    provider_type: Optional[str] = None,
+    client: Optional[genai.Client] = None,
+    storage_service: Optional[BaseStorageService] = None,
+    use_in_memory: Optional[bool] = None,
+) -> BaseImageProvider:
+    """Resolve and instantiate the configured image provider.
+
+    Resolution precedence:
+    1. If use_in_memory is True, returns MockImageProvider.
+    2. Explicit provider_type argument.
+    3. settings.IMAGE_PROVIDER from environment.
+    """
+    if use_in_memory:
+        return MockImageProvider()
+
+    ptype = (provider_type or getattr(settings, "IMAGE_PROVIDER", "gemini") or "gemini").lower().strip()
+
+    if ptype in ("mock", "test"):
+        return MockImageProvider()
+    elif ptype in ("placeholder", "none"):
+        return PlaceholderImageProvider()
+    elif ptype in ("gemini", "google"):
+        from database.storage import SupabaseStorageService
+        storage = storage_service or SupabaseStorageService()
+        return GeminiImageProvider(client=client, storage_service=storage)
+    else:
+        logger.warning(f"Unrecognized IMAGE_PROVIDER '{ptype}', falling back to GeminiImageProvider.")
+        from database.storage import SupabaseStorageService
+        return GeminiImageProvider(client=client, storage_service=storage_service or SupabaseStorageService())
 
 
 def generate_image_brief(
@@ -264,7 +421,7 @@ def generate_image_brief(
         prompts_dir=prompts_dir,
     )
 
-    return generate_structured_content(
+    return gemini_mod.generate_structured_content(
         client=client,
         prompt=prompt,
         schema=ImageBrief,
