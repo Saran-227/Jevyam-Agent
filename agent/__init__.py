@@ -28,6 +28,9 @@ __all__ = [
     "ImageBrief",
     "generate_image_brief",
     "BaseImageProvider",
+    "BrandedPillowImageProvider",
+    "BrandedImageProvider",
+    "render_branded_image",
     "GeminiImageProvider",
     "MockImageProvider",
     "resolve_image_provider",
@@ -60,6 +63,8 @@ __all__ = [
 def __getattr__(name: str):
     if name in (
         "BaseImageProvider",
+        "BrandedPillowImageProvider",
+        "BrandedImageProvider",
         "GeminiImageProvider",
         "ImageBrief",
         "MockImageProvider",
@@ -70,6 +75,10 @@ def __getattr__(name: str):
         from agent import image_generator
 
         return getattr(image_generator, name)
+    if name in ("render_branded_image",):
+        from agent import branded_renderer
+
+        return getattr(branded_renderer, name)
     if name in ("CompanyKnowledge", "load_company_knowledge"):
         from agent import knowledge
 

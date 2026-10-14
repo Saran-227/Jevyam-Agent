@@ -265,6 +265,8 @@ def run_content_pipeline(
                 brief=image_brief,
                 post_id=post_id,
                 revision=1,
+                topic=selected_idea.topic,
+                caption=post_content.caption,
             )
         except (ImageGenerationError, ImageStorageError) as e:
             if should_require_image:
@@ -515,6 +517,18 @@ def regenerate_draft(
             use_in_memory=in_mem,
         )
 
+    # Look up previous layouts from repository history to guarantee variation across regenerations
+    previous_layouts: List[str] = []
+    try:
+        prev_revs = repos.revisions.get_by_post_id(post_id)
+        for pr in prev_revs:
+            if hasattr(pr.image_brief, "layout") and pr.image_brief.layout:
+                previous_layouts.append(pr.image_brief.layout)
+            elif isinstance(pr.image_brief, dict) and pr.image_brief.get("layout"):
+                previous_layouts.append(pr.image_brief["layout"])
+    except Exception:
+        pass
+
     image_url: Optional[str] = None
     if active_img_provider is not None:
         try:
@@ -522,6 +536,9 @@ def regenerate_draft(
                 brief=image_brief,
                 post_id=post_id,
                 revision=next_rev_num,
+                topic=new_idea.topic,
+                caption=post_content.caption,
+                previous_layouts=previous_layouts,
             )
         except (ImageGenerationError, ImageStorageError) as e:
             if should_require_image:

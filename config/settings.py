@@ -10,7 +10,7 @@ class Settings:
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
     GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
-    IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "gemini").lower().strip()
+    IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "branded").lower().strip()
     REQUIRE_POST_IMAGE = os.getenv("REQUIRE_POST_IMAGE", "true").lower() in ("true", "1", "yes")
 
     SUPABASE_URL = os.getenv("SUPABASE_URL")

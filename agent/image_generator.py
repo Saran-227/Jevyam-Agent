@@ -87,6 +87,10 @@ class ImageBrief(BaseModel):
         default="1:1",
         description="Aspect ratio for LinkedIn feed, default 1:1",
     )
+    layout: Optional[str] = Field(
+        default=None,
+        description="Selected visual layout style (e.g. dark_cyber_tech, minimalist_editorial)",
+    )
 
 
 class BaseImageProvider(ABC):
@@ -102,6 +106,11 @@ class BaseImageProvider(ABC):
         post_id: Optional[str] = None,
         revision: int = 1,
         output_path: Optional[Path] = None,
+        topic: Optional[str] = None,
+        caption: Optional[str] = None,
+        key_points: Optional[List[str]] = None,
+        layout: Optional[str] = None,
+        **kwargs: Any,
     ) -> Optional[str]:
         """Generate an image from an ImageBrief and return persistent image URL or path."""
         pass
@@ -116,6 +125,11 @@ class PlaceholderImageProvider(BaseImageProvider):
         post_id: Optional[str] = None,
         revision: int = 1,
         output_path: Optional[Path] = None,
+        topic: Optional[str] = None,
+        caption: Optional[str] = None,
+        key_points: Optional[List[str]] = None,
+        layout: Optional[str] = None,
+        **kwargs: Any,
     ) -> Optional[str]:
         self.last_diagnostic = ImageGenerationDiagnostic(
             provider_name="PlaceholderImageProvider",
@@ -175,6 +189,11 @@ class GeminiImageProvider(BaseImageProvider):
         post_id: Optional[str] = None,
         revision: int = 1,
         output_path: Optional[Path] = None,
+        topic: Optional[str] = None,
+        caption: Optional[str] = None,
+        key_points: Optional[List[str]] = None,
+        layout: Optional[str] = None,
+        **kwargs: Any,
     ) -> Optional[str]:
         """Generate an image from ImageBrief, save to a temporary file during processing, and upload to storage.
 
@@ -305,6 +324,203 @@ class GeminiImageProvider(BaseImageProvider):
                 pass
 
 
+class BrandedPillowImageProvider(BaseImageProvider):
+    """Zero-cost Python/Pillow-based branded image generator for Jevyam Technologies.
+
+    Generates 1200x1200 high-resolution graphics matching company visual guidelines
+    (Dark navy / clean white, cyan/blue accents, Jevyam logo mark, clean typography),
+    and uploads to Supabase Storage if configured.
+    """
+
+    def __init__(
+        self,
+        storage_service: Optional[BaseStorageService] = None,
+        default_layout: Optional[str] = "auto",
+    ):
+        super().__init__()
+        self.storage_service = storage_service
+        self.default_layout = default_layout
+
+    def generate_image(
+        self,
+        brief: ImageBrief,
+        post_id: Optional[str] = None,
+        revision: int = 1,
+        output_path: Optional[Path] = None,
+        topic: Optional[str] = None,
+        caption: Optional[str] = None,
+        key_points: Optional[List[str]] = None,
+        layout: Optional[str] = None,
+        previous_layouts: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> Optional[str]:
+        """Generate a branded 1200x1200 graphic using Pillow, and upload to storage.
+
+        Args:
+            brief: Validated ImageBrief instance.
+            post_id: Unique business post ID (e.g. JVY-20261013-001).
+            revision: Revision number.
+            output_path: Optional local destination path.
+            topic: Post topic for headline extraction.
+            caption: Post caption for subtitle/copy extraction.
+            key_points: Optional bullet points for layout cards.
+            layout: Optional layout override or 'auto'.
+            previous_layouts: Optional list of previously used layouts to rotate away from.
+
+        Returns:
+            Permanent public URL to the uploaded visual, or local path if storage not configured.
+
+        Raises:
+            ImageGenerationError: If rendering fails.
+            ImageStorageError: If persistent upload fails.
+        """
+        start_time = time.perf_counter()
+        chosen_layout = layout or self.default_layout or "auto"
+        prev_layouts = previous_layouts or kwargs.get("previous_layouts")
+
+        from agent.branded_renderer import detect_optimal_layout, render_branded_image
+
+        temp_path: Optional[Path] = None
+        gen_ok = False
+        try:
+            # Extract headline candidate from brief text_on_image or topic
+            title_cand = None
+            if brief.text_on_image and brief.text_on_image.strip().lower() not in ("none", "null", ""):
+                title_cand = brief.text_on_image.strip()
+            elif topic:
+                title_cand = topic
+
+            actual_layout = detect_optimal_layout(
+                title=title_cand or "",
+                caption=caption or "",
+                visual_concept=brief.visual_concept,
+                preferred_layout=chosen_layout,
+                previous_layouts=prev_layouts,
+                revision=revision,
+                post_id=post_id,
+            )
+            brief.layout = actual_layout
+
+            logger.info(
+                f"Generating branded visual (layout='{actual_layout}') for post '{post_id}' (rev #{revision})..."
+            )
+
+            png_bytes = render_branded_image(
+                title=title_cand,
+                topic=topic,
+                caption=caption,
+                visual_concept=brief.visual_concept,
+                key_points=key_points,
+                layout=actual_layout,
+                previous_layouts=prev_layouts,
+                revision=revision,
+                post_id=post_id,
+            )
+            gen_ok = True
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            safe_err = mask_secret_strings(str(e))
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="BrandedPillowImageProvider",
+                model="pillow-branded-v1",
+                generation_succeeded=False,
+                storage_succeeded=False,
+                error_message=safe_err,
+                duration_ms=elapsed_ms,
+            )
+            logger.error(f"[ERROR] Branded Pillow image generation failed ({elapsed_ms:.1f}ms): {safe_err}")
+            raise ImageGenerationError(f"Branded image generation failed: {safe_err}") from e
+
+        # Save to local temporary file during processing
+        temp_fd, temp_path_str = tempfile.mkstemp(suffix=".png")
+        temp_path = Path(temp_path_str)
+        try:
+            with open(temp_fd, "wb") as f:
+                f.write(png_bytes)
+
+            if output_path:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(temp_path, output_path)
+
+            if self.storage_service is not None:
+                try:
+                    storage_url = self.storage_service.upload_image(
+                        post_id=post_id or "TEMP",
+                        revision=revision,
+                        image_bytes=png_bytes,
+                        mime_type="image/png",
+                    )
+                except Exception as e:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    safe_err = mask_secret_strings(str(e))
+                    self.last_diagnostic = ImageGenerationDiagnostic(
+                        provider_name="BrandedPillowImageProvider",
+                        model="pillow-branded-v1",
+                        generation_succeeded=True,
+                        storage_succeeded=False,
+                        error_message=safe_err,
+                        duration_ms=elapsed_ms,
+                    )
+                    logger.error(f"[ERROR] Persistent storage upload failed: {safe_err}")
+                    if isinstance(e, ImageStorageError):
+                        raise
+                    raise ImageStorageError(f"Failed to upload visual to storage: {safe_err}") from e
+
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                self.last_diagnostic = ImageGenerationDiagnostic(
+                    provider_name="BrandedPillowImageProvider",
+                    model="pillow-branded-v1",
+                    generation_succeeded=True,
+                    storage_succeeded=True,
+                    image_url=mask_secret_strings(storage_url),
+                    duration_ms=elapsed_ms,
+                )
+                logger.info(
+                    f"Visual generation and storage completed successfully in {elapsed_ms:.1f}ms: "
+                    f"provider=BrandedPillowImageProvider, url={mask_secret_strings(storage_url)}"
+                )
+                return storage_url
+
+            result_path = str(output_path or temp_path)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="BrandedPillowImageProvider",
+                model="pillow-branded-v1",
+                generation_succeeded=True,
+                storage_succeeded=False,
+                image_url=result_path,
+                duration_ms=elapsed_ms,
+            )
+            return result_path
+
+        except (ImageGenerationError, ImageStorageError):
+            raise
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            safe_err = mask_secret_strings(str(e))
+            self.last_diagnostic = ImageGenerationDiagnostic(
+                provider_name="BrandedPillowImageProvider",
+                model="pillow-branded-v1",
+                generation_succeeded=gen_ok,
+                storage_succeeded=False,
+                error_message=safe_err,
+                duration_ms=elapsed_ms,
+            )
+            logger.error(f"[ERROR] Failed processing or storing generated image: {safe_err}")
+            raise ImageGenerationError(f"Failed to process and store generated image: {safe_err}") from e
+
+        finally:
+            # Guarantees local temporary file cleanup when uploaded or saved to output_path
+            try:
+                if temp_path and temp_path.exists() and (self.storage_service is not None or output_path is not None):
+                    temp_path.unlink()
+            except Exception:
+                pass
+
+
+BrandedImageProvider = BrandedPillowImageProvider
+
+
 class MockImageProvider(BaseImageProvider):
     """Deterministic mock image provider for tests and dry-run execution."""
 
@@ -324,6 +540,11 @@ class MockImageProvider(BaseImageProvider):
         post_id: Optional[str] = None,
         revision: int = 1,
         output_path: Optional[Path] = None,
+        topic: Optional[str] = None,
+        caption: Optional[str] = None,
+        key_points: Optional[List[str]] = None,
+        layout: Optional[str] = None,
+        **kwargs: Any,
     ) -> Optional[str]:
         if self.should_fail:
             self.last_diagnostic = ImageGenerationDiagnostic(
@@ -341,6 +562,10 @@ class MockImageProvider(BaseImageProvider):
             "revision": revision,
             "brief": brief,
             "url": url,
+            "topic": topic,
+            "caption": caption,
+            "key_points": key_points,
+            "layout": layout,
         })
         if output_path:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -366,25 +591,29 @@ def resolve_image_provider(
     Resolution precedence:
     1. If use_in_memory is True, returns MockImageProvider.
     2. Explicit provider_type argument.
-    3. settings.IMAGE_PROVIDER from environment.
+    3. settings.IMAGE_PROVIDER from environment (defaults to 'branded').
     """
     if use_in_memory:
         return MockImageProvider()
 
-    ptype = (provider_type or getattr(settings, "IMAGE_PROVIDER", "gemini") or "gemini").lower().strip()
+    ptype = (provider_type or getattr(settings, "IMAGE_PROVIDER", "branded") or "branded").lower().strip()
 
     if ptype in ("mock", "test"):
         return MockImageProvider()
     elif ptype in ("placeholder", "none"):
         return PlaceholderImageProvider()
+    elif ptype in ("branded", "pillow", "local", "zero-cost"):
+        from database.storage import SupabaseStorageService
+        storage = storage_service or SupabaseStorageService()
+        return BrandedPillowImageProvider(storage_service=storage)
     elif ptype in ("gemini", "google"):
         from database.storage import SupabaseStorageService
         storage = storage_service or SupabaseStorageService()
         return GeminiImageProvider(client=client, storage_service=storage)
     else:
-        logger.warning(f"Unrecognized IMAGE_PROVIDER '{ptype}', falling back to GeminiImageProvider.")
+        logger.warning(f"Unrecognized IMAGE_PROVIDER '{ptype}', falling back to BrandedPillowImageProvider.")
         from database.storage import SupabaseStorageService
-        return GeminiImageProvider(client=client, storage_service=storage_service or SupabaseStorageService())
+        return BrandedPillowImageProvider(storage_service=storage_service or SupabaseStorageService())
 
 
 def generate_image_brief(
