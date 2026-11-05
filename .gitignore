@@ -18,6 +18,8 @@ __pycache__/
 # Local data / drafts (Phase 1 local post storage)
 data/posts/*
 !data/posts/.gitkeep
+data/oauth/*
+!data/oauth/.gitkeep
 
 # IDEs
 .idea/

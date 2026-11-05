@@ -13,6 +13,7 @@ from integrations.linkedin.exceptions import (
     LinkedInNetworkError,
     LinkedInPermissionError,
     LinkedInRateLimitError,
+    LinkedInTokenExpiredError,
     LinkedInValidationError,
     MissingLinkedInCredentialsError,
 )
@@ -40,13 +41,50 @@ class LinkedInClient:
         self,
         access_token: Optional[str] = None,
         organization_id: Optional[str] = None,
-        api_version: str = "202401",
+        api_version: Optional[str] = None,
         http_client: Optional[httpx.Client] = None,
+        token_store: Optional[Any] = None,
     ):
-        self.access_token = (access_token or settings.LINKEDIN_ACCESS_TOKEN or "").strip()
-        self.organization_id = (organization_id or settings.LINKEDIN_ORGANIZATION_ID or "").strip()
-        self.api_version = api_version
+        self._explicit_access_token = access_token
+        self.organization_id = (
+            organization_id
+            if organization_id is not None
+            else (settings.LINKEDIN_ORGANIZATION_ID or "")
+        ).strip()
+        self.api_version = api_version or getattr(settings, "LINKEDIN_API_VERSION", "202610") or "202610"
         self._client = http_client
+        if token_store is not None:
+            self.token_store = token_store
+        else:
+            try:
+                from integrations.linkedin.oauth import get_default_token_store
+                self.token_store = get_default_token_store()
+            except Exception:
+                self.token_store = None
+
+    @property
+    def access_token(self) -> str:
+        """Resolve active LinkedIn access token.
+
+        Resolution order:
+        1. Explicitly supplied access_token (including explicit empty string).
+        2. Stored unexpired OAuth token from token_store.
+        3. Backward-compatible static LINKEDIN_ACCESS_TOKEN from settings.
+        """
+        if self._explicit_access_token is not None:
+            return self._explicit_access_token.strip()
+
+        if self.token_store and self.token_store.has_token():
+            if not self.token_store.is_expired():
+                oauth_tok = self.token_store.get_access_token()
+                if oauth_tok:
+                    return oauth_tok
+
+        return (settings.LINKEDIN_ACCESS_TOKEN or "").strip()
+
+    @access_token.setter
+    def access_token(self, val: Optional[str]) -> None:
+        self._explicit_access_token = val
 
     @property
     def organization_urn(self) -> str:
@@ -57,16 +95,27 @@ class LinkedInClient:
         return f"urn:li:organization:{clean_id}"
 
     def validate_credentials(self) -> None:
-        """Verify that necessary credentials are provided and not placeholders.
+        """Verify that necessary credentials are provided, unexpired, and not placeholders.
 
         Raises:
+            LinkedInTokenExpiredError: If stored OAuth token has expired and no valid static fallback exists.
             MissingLinkedInCredentialsError: If access token or organization ID is missing or placeholder.
         """
-        if not self.access_token:
+        # If an OAuth token exists but is expired, and no explicit token was passed
+        if not self._explicit_access_token and self.token_store and self.token_store.has_token():
+            if self.token_store.is_expired():
+                static_fallback = (settings.LINKEDIN_ACCESS_TOKEN or "").strip()
+                if not static_fallback or static_fallback.startswith("your_"):
+                    raise LinkedInTokenExpiredError(
+                        "LinkedIn OAuth access token has expired. Reauthorization required via /auth/linkedin/authorize."
+                    )
+
+        token = self.access_token
+        if not token:
             raise MissingLinkedInCredentialsError(
-                "LINKEDIN_ACCESS_TOKEN is missing or empty. Please set it in your .env file."
+                "LINKEDIN_ACCESS_TOKEN is missing or empty. Please authenticate via OAuth (/auth/linkedin/authorize) or set it in your .env file."
             )
-        if self.access_token.startswith("your_"):
+        if token.startswith("your_"):
             raise MissingLinkedInCredentialsError(
                 "LINKEDIN_ACCESS_TOKEN contains a placeholder value. Please configure a valid OAuth token."
             )

@@ -9,6 +9,7 @@ from api.routes import (
     approval_router,
     dev_router,
     health_router,
+    linkedin_auth_router,
     publishing_router,
     telegram_router,
     whatsapp_router,
@@ -29,6 +30,8 @@ async def lifespan(app: FastAPI):
     print(f"Health Check: http://{host}:{port}/health")
     print(f"Telegram Webhook: http://{host}:{port}/telegram/webhook")
     print(f"WhatsApp Webhook: http://{host}:{port}/webhook/whatsapp")
+    print(f"LinkedIn OAuth Authorize: http://{host}:{port}/auth/linkedin/authorize")
+    print(f"LinkedIn OAuth Callback: http://{host}:{port}/auth/linkedin/callback")
     print("=" * 60)
     yield
 
@@ -46,6 +49,7 @@ app.include_router(approval_router)
 app.include_router(telegram_router)
 app.include_router(whatsapp_router)
 app.include_router(publishing_router)
+app.include_router(linkedin_auth_router)
 app.include_router(dev_router)
 
 

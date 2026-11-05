@@ -45,7 +45,11 @@ class LinkedInDraft(BaseModel):
     generated_at: str = Field(..., description="ISO 8601 generation timestamp")
     topic: str = Field(..., description="The core subject of the post")
     angle: str = Field(..., description="The unique viewpoint or technical argument")
-    content_type: str = Field(..., description="Content category")
+    content_type: str = Field(..., description="Content category (e.g. 'Inventory Management Systems | Problem → Solution')")
+    service_category: Optional[str] = Field(default=None, description="One of 8 official service categories")
+    service_name: Optional[str] = Field(default=None, description="Official service name")
+    service_url: Optional[str] = Field(default=None, description="Official service webpage URL")
+    content_format: Optional[str] = Field(default=None, description="One of 10 official content formats")
     target_audience: str = Field(..., description="Target reader persona")
     hook: str = Field(..., description="Attention-grabbing opening hook")
     caption: str = Field(..., description="Complete ready-to-publish LinkedIn post text")
@@ -127,6 +131,7 @@ def run_content_pipeline(
     save_local_copy: bool = True,
     image_provider: Optional[BaseImageProvider] = None,
     require_image: Optional[bool] = None,
+    override_idea: Optional[ContentIdea] = None,
 ) -> LinkedInDraft:
     """Execute the end-to-end LinkedIn content generation pipeline.
 
@@ -166,41 +171,44 @@ def run_content_pipeline(
     last_repetition_reason: Optional[str] = None
     attempt_history: List[str] = []
 
-    for attempt in range(1, max_retries + 1):
-        all_previous_summary = format_previous_posts_summary(combined_previous)
-        if attempt_history:
-            all_previous_summary += (
-                f"\nRejected Candidate Ideas This Run (DO NOT REUSE):\n"
-                + "\n".join(f"- {att}" for att in attempt_history)
+    if override_idea:
+        selected_idea = override_idea
+    else:
+        for attempt in range(1, max_retries + 1):
+            all_previous_summary = format_previous_posts_summary(combined_previous)
+            if attempt_history:
+                all_previous_summary += (
+                    f"\nRejected Candidate Ideas This Run (DO NOT REUSE):\n"
+                    + "\n".join(f"- {att}" for att in attempt_history)
+                )
+
+            candidate_idea = select_content_idea(
+                client=ai_client,
+                company_knowledge=company_knowledge,
+                previous_posts=combined_previous,
+                current_date=current_date,
+                recent_activity=recent_activity,
+                model=model,
+                prompts_dir=prompts_dir,
             )
 
-        candidate_idea = select_content_idea(
-            client=ai_client,
-            company_knowledge=company_knowledge,
-            previous_posts=all_previous_summary,
-            current_date=current_date,
-            recent_activity=recent_activity,
-            model=model,
-            prompts_dir=prompts_dir,
-        )
+            is_dup, reason = check_repetition(
+                candidate_topic=candidate_idea.topic,
+                previous_posts=combined_previous,
+            )
 
-        is_dup, reason = check_repetition(
-            candidate_topic=candidate_idea.topic,
-            previous_posts=combined_previous,
-        )
+            if not is_dup:
+                selected_idea = candidate_idea
+                break
 
-        if not is_dup:
-            selected_idea = candidate_idea
-            break
+            last_repetition_reason = reason
+            attempt_history.append(f"Topic: {candidate_idea.topic} (Reason: {reason})")
 
-        last_repetition_reason = reason
-        attempt_history.append(f"Topic: {candidate_idea.topic} (Reason: {reason})")
-
-    if not selected_idea:
-        raise DuplicateContentError(
-            f"Failed to generate a non-repetitive topic after {max_retries} attempts. "
-            f"Last check flagged: {last_repetition_reason}"
-        )
+        if not selected_idea:
+            raise DuplicateContentError(
+                f"Failed to generate a non-repetitive topic after {max_retries} attempts. "
+                f"Last check flagged: {last_repetition_reason}"
+            )
 
     # 2. LinkedIn Post Writer
     try:
@@ -216,6 +224,16 @@ def run_content_pipeline(
         raise ContentGenerationError(f"LinkedIn writer failed: {e}") from e
 
     # 3. Image Brief Generator
+    service_cat = (
+        getattr(selected_idea, "service_category", None)
+        or getattr(selected_idea, "service_pillar", None)
+        or "Custom Software Development"
+    )
+    service_url = getattr(selected_idea, "service_url", None)
+    if not service_url:
+        from agent.pillars import get_service_url
+        service_url = get_service_url(service_cat)
+
     try:
         image_brief: ImageBrief = generate_image_brief(
             client=ai_client,
@@ -224,6 +242,7 @@ def run_content_pipeline(
             hook=post_content.hook,
             caption=post_content.caption,
             brand_voice=company_knowledge.brand_voice,
+            service_category=service_cat,
             model=model,
             prompts_dir=prompts_dir,
         )
@@ -292,13 +311,39 @@ def run_content_pipeline(
     company = repos.companies.get_by_slug("jevyam")
     company_id = company.id if company else None
 
+    # Format content_type to store service_category and content_format
+    pillar_tag = getattr(selected_idea, "service_category", None) or getattr(selected_idea, "service_pillar", "Custom Software Development")
+    service_name_tag = getattr(selected_idea, "service_name", None) or pillar_tag
+    format_tag = getattr(selected_idea, "content_format", "Problem → Solution")
+    stored_content_type = selected_idea.content_type
+    if pillar_tag and pillar_tag not in stored_content_type:
+        stored_content_type = f"{pillar_tag} | {format_tag or stored_content_type}"
+
+    # Also record in image_brief dict for JSONB persistence
+    brief_data = (
+        image_brief.model_dump()
+        if hasattr(image_brief, "model_dump")
+        else dict(image_brief)
+    )
+    brief_data["service_category"] = pillar_tag
+    brief_data["service_name"] = service_name_tag
+    brief_data["service_pillar"] = pillar_tag
+    brief_data["service_url"] = service_url
+    brief_data["content_format"] = format_tag
+    brief_data["topic"] = selected_idea.topic
+    brief_data["target_audience"] = selected_idea.target_audience
+    brief_data["caption"] = post_content.caption
+    brief_data["hashtags"] = post_content.hashtags
+    brief_data["visual_concept"] = image_brief.visual_concept
+    brief_data["generation_timestamp"] = datetime.now().isoformat()
+
     # 6. Persist to Database: Master Post (status=DRAFT, revision=1)
     post_entity = Post(
         post_id=post_id,
         company_id=company_id,
         status=PostStatus.DRAFT,
         current_revision=1,
-        content_type=selected_idea.content_type,
+        content_type=stored_content_type,
         topic=selected_idea.topic,
         angle=selected_idea.angle,
         target_audience=selected_idea.target_audience,
@@ -307,7 +352,7 @@ def run_content_pipeline(
         hashtags=post_content.hashtags,
         call_to_action=post_content.call_to_action,
         visual_concept=image_brief.visual_concept,
-        image_brief=image_brief,
+        image_brief=brief_data,
         image_url=image_url,
         created_at=datetime.now(),
         updated_at=datetime.now(),
@@ -320,14 +365,14 @@ def run_content_pipeline(
         revision_number=1,
         topic=selected_idea.topic,
         angle=selected_idea.angle,
-        content_type=selected_idea.content_type,
+        content_type=stored_content_type,
         target_audience=selected_idea.target_audience,
         hook=post_content.hook,
         caption=post_content.caption,
         hashtags=post_content.hashtags,
         call_to_action=post_content.call_to_action,
         visual_concept=image_brief.visual_concept,
-        image_brief=image_brief,
+        image_brief=brief_data,
         image_url=image_url,
         created_at=datetime.now(),
     )
@@ -340,6 +385,10 @@ def run_content_pipeline(
         topic=saved_post.topic,
         angle=saved_post.angle,
         content_type=saved_post.content_type,
+        service_category=pillar_tag,
+        service_name=service_name_tag,
+        service_url=service_url,
+        content_format=format_tag,
         target_audience=saved_post.target_audience,
         hook=saved_post.hook,
         caption=saved_post.caption,

@@ -1,5 +1,9 @@
 """Post repository implementations."""
 
+import json
+import logging
+import os
+from pathlib import Path
 from datetime import datetime
 import re
 from typing import Any, Dict, List, Optional
@@ -50,6 +54,32 @@ class InMemoryPostRepository(BasePostRepository):
 
     def get_by_post_id(self, post_id: str) -> Optional[Post]:
         post = self._posts.get(post_id)
+        if not post:
+            file_path = Path(f"data/posts/{post_id}.json")
+            if file_path.exists():
+                try:
+                    data = json.loads(file_path.read_text(encoding="utf-8"))
+                    stat_val = data.get("status", "PENDING_APPROVAL")
+                    post_stat = PostStatus(stat_val) if stat_val in PostStatus._value2member_map_ else PostStatus.PENDING_APPROVAL
+                    post = Post(
+                        post_id=data["post_id"],
+                        topic=data.get("topic", ""),
+                        hook=data.get("hook", ""),
+                        caption=data.get("caption", ""),
+                        hashtags=data.get("hashtags", []),
+                        call_to_action=data.get("call_to_action", ""),
+                        visual_concept=data.get("visual_concept", ""),
+                        image_brief=data.get("image_brief", {}),
+                        image_url=data.get("image_url"),
+                        status=post_stat,
+                        current_revision=data.get("revision", 1),
+                        content_type=data.get("content_type", "agency"),
+                        angle=data.get("angle", ""),
+                        target_audience=data.get("target_audience", ""),
+                    )
+                    self._posts[post_id] = post
+                except Exception:
+                    pass
         return post.model_copy(deep=True) if post else None
 
     def update(self, post: Post) -> Post:
@@ -57,6 +87,19 @@ class InMemoryPostRepository(BasePostRepository):
             raise PostNotFoundError(f"Post with post_id '{post.post_id}' does not exist.")
         post.updated_at = datetime.now()
         self._posts[post.post_id] = post.model_copy(deep=True)
+        file_path = Path(f"data/posts/{post.post_id}.json")
+        if file_path.exists() and not os.getenv("PYTEST_CURRENT_TEST"):
+            try:
+                data = json.loads(file_path.read_text(encoding="utf-8"))
+                data["status"] = post.status.value
+                data["updated_at"] = str(post.updated_at)
+                if post.approved_at:
+                    data["approved_at"] = str(post.approved_at)
+                if post.published_at:
+                    data["published_at"] = str(post.published_at)
+                file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            except Exception:
+                pass
         return self._posts[post.post_id]
 
     def update_status(self, post_id: str, new_status: PostStatus) -> Post:

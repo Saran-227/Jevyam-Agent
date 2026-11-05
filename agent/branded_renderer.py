@@ -495,8 +495,31 @@ def extract_content_summary(
 
 
 # ==============================================================================
-# DETERMINISTIC LAYOUT SELECTION & ROTATION
+# DETERMINISTIC LAYOUT SELECTION & SERVICE ROTATION
 # ==============================================================================
+
+OFFICIAL_SERVICE_TAGLINES: Dict[str, str] = {
+    "Inventory Management Systems": "SERVICE 01  ·  INVENTORY MANAGEMENT",
+    "CRM Solutions": "SERVICE 02  ·  CRM SOLUTIONS",
+    "Custom Software Development": "SERVICE 03  ·  CUSTOM SOFTWARE",
+    "Website Design & Development": "SERVICE 04  ·  WEB DEVELOPMENT",
+    "Mobile App Development": "SERVICE 05  ·  MOBILE APPS",
+    "Digital Marketing": "SERVICE 06  ·  DIGITAL MARKETING",
+    "AI & Business Automation": "SERVICE 07  ·  AI & AUTOMATION",
+    "IT Consultancy & Support": "SERVICE 08  ·  IT CONSULTING",
+}
+
+
+def format_service_tagline(service_name_or_cand: Optional[str]) -> str:
+    """Resolve clean tracked header tagline for official service."""
+    if not service_name_or_cand:
+        return "BUILD  ·  AUTOMATE  ·  SCALE"
+    clean = service_name_or_cand.strip()
+    for s_name, tag in OFFICIAL_SERVICE_TAGLINES.items():
+        if s_name.lower() in clean.lower() or clean.lower() in s_name.lower():
+            return tag
+    return "BUILD  ·  AUTOMATE  ·  SCALE"
+
 
 def detect_optimal_layout(
     title: str,
@@ -506,12 +529,13 @@ def detect_optimal_layout(
     previous_layouts: Optional[List[str]] = None,
     revision: int = 1,
     post_id: Optional[str] = None,
+    service_category: Optional[str] = None,
 ) -> str:
     """Determine the most compelling visual layout based on content intent.
 
     Features:
     - 12 distinct layout styles supported.
-    - Deterministic ranking based on semantic keywords.
+    - Deterministic ranking based on semantic keywords and service pillar affinities.
     - Automatic exclusion of previous revision layouts to ensure visual variety.
     - Deterministic offset based on post revision (no random flapping).
     """
@@ -550,11 +574,54 @@ def detect_optimal_layout(
         if resolved in ALL_LAYOUTS:
             return resolved
 
-    combined = f"{title} {caption} {visual_concept or ''}".lower()
+    combined = f"{service_category or ''} {title} {caption} {visual_concept or ''}".lower()
 
-    # 2. Score all 12 layouts semantically
+    # 2. Score all 12 layouts semantically with service-specific boosts
     scores: Dict[str, float] = {k: 1.0 for k in ALL_LAYOUTS}
 
+    # Service-specific primary layout affinities
+    if any(k in combined for k in ("inventory", "warehouse", "stock", "scrap", "raw material", "finished goods", "reconciliation")):
+        scores["process_flow"] += 14.0
+        scores["data_visualization"] += 12.0
+        scores["split_screen_comparison"] += 10.0
+        scores["layered_cards"] += 9.0
+    elif any(k in combined for k in ("crm", "sales pipeline", "lead", "quotation", "deal", "follow-up", "vendor registry")):
+        scores["process_flow"] += 14.0
+        scores["timeline_roadmap"] += 12.0
+        scores["layered_cards"] += 11.0
+        scores["minimalist_editorial"] += 9.0
+    elif any(k in combined for k in ("custom software", "business application", "desktop tool", "database engine", "api integration", "bespoke")):
+        scores["isometric_infrastructure"] += 14.0
+        scores["process_flow"] += 12.0
+        scores["dark_cyber_tech"] += 11.0
+        scores["split_screen_comparison"] += 10.0
+    elif any(k in combined for k in ("website", "web design", "e-commerce", "storefront", "portal", "core web vitals", "technical seo", "bounce rate")):
+        scores["split_screen_comparison"] += 14.0
+        scores["minimalist_editorial"] += 12.0
+        scores["product_announcement"] += 11.0
+        scores["magazine_cover"] += 10.0
+    elif any(k in combined for k in ("mobile app", "android", "ios", "smartphone", "cross-platform", "field operator", "app store")):
+        scores["product_announcement"] += 14.0
+        scores["split_screen_comparison"] += 12.0
+        scores["process_flow"] += 11.0
+        scores["minimalist_editorial"] += 10.0
+    elif any(k in combined for k in ("digital marketing", "search engine optimization", "google ads", "social media", "search ranking", "conversion tracking", "roi measurement")):
+        scores["data_visualization"] += 14.0
+        scores["timeline_roadmap"] += 12.0
+        scores["geometric_abstract"] += 11.0
+        scores["magazine_cover"] += 10.0
+    elif any(k in combined for k in ("ai & business automation", "automation", "chatbot", "document parsing", "invoice", "receipt", "translation pipeline")):
+        scores["process_flow"] += 14.0
+        scores["dark_cyber_tech"] += 12.0
+        scores["isometric_infrastructure"] += 11.0
+        scores["layered_cards"] += 10.0
+    elif any(k in combined for k in ("it consultancy", "consultancy", "database migration", "security audit", "cloud hosting", "backup automation", "disaster recovery")):
+        scores["isometric_infrastructure"] += 14.0
+        scores["dark_cyber_tech"] += 12.0
+        scores["split_screen_comparison"] += 11.0
+        scores["process_flow"] += 10.0
+
+    # Topic-specific semantic keywords
     if any(k in combined for k in ("vs", "versus", "compare", "comparison", "before", "after", "legacy", "migration", "difference")):
         scores["split_screen_comparison"] += 12.0
     if any(k in combined for k in ("99.", "%", "metric", "stat", "uptime", "benchmark", "roi", "numbers", "throughput", "latency")):
@@ -609,6 +676,9 @@ def render_dark_cyber_tech_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """1. Dark cyber/neon technology layout with glowing matrix grid and technical core."""
     img = create_gradient_canvas(CANVAS_SIZE, (4, 7, 17, 255), (10, 19, 43, 255))
@@ -622,12 +692,14 @@ def render_dark_cyber_tech_layout(
 
     # Top Header
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="CYBER  ·  NEURAL  ·  SYSTEMS", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "CYBER  ·  NEURAL  ·  SYSTEMS", x_right=1120, y=75, is_dark=True)
 
     # Tech badge
-    draw.rounded_rectangle([80, 180, 380, 218], radius=8, fill=(17, 28, 56, 220), outline=ACCENT_CYAN, width=1)
+    badge_label = f"[ {service_category.upper()[:28]} // ENTERPRISE ]" if service_category else "[ SYSTEM_CORE // HIGH_AVAILABILITY ]"
+    badge_w = 420 if service_category else 380
+    draw.rounded_rectangle([80, 180, 80 + badge_w, 218], radius=8, fill=(17, 28, 56, 220), outline=ACCENT_CYAN, width=1)
     font_mono = get_font(13, bold=True)
-    draw.text((96, 191), "[ SYSTEM_CORE // HIGH_AVAILABILITY ]", font=font_mono, fill=ACCENT_CYAN)
+    draw.text((96, 191), badge_label, font=font_mono, fill=ACCENT_CYAN)
 
     # Headline
     font_hl = get_font(52, bold=True)
@@ -675,6 +747,9 @@ def render_minimalist_editorial_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """2. Minimalist editorial layout with generous negative space and stark typography."""
     img = create_gradient_canvas(CANVAS_SIZE, (253, 253, 254, 255), (243, 244, 246, 255))
@@ -682,14 +757,15 @@ def render_minimalist_editorial_layout(
 
     # Top Header
     draw_jevyam_logo(draw, x=90, y=80, is_dark=False, img=img)
-    draw_tagline(draw, text="ISSUE 26  ·  PERSPECTIVE", x_right=1110, y=85, is_dark=False)
+    draw_tagline(draw, text=tagline or "ISSUE 26  ·  PERSPECTIVE", x_right=1110, y=85, is_dark=False)
 
     # Editorial rule line
     draw.line([(90, 180), (1110, 180)], fill=(203, 213, 225, 255), width=1)
 
     # Section index callout
     font_num = get_font(18, bold=True)
-    draw.text((90, 215), "01 / ESSAY", font=font_num, fill=ACCENT_DEEP_BLUE)
+    callout_label = f"AGENCY OFFERING // {service_category.upper()[:28]}" if service_category else "01 / ESSAY"
+    draw.text((90, 215), callout_label, font=font_num, fill=ACCENT_DEEP_BLUE)
 
     # Headline
     font_hl = get_font(56, bold=True)
@@ -730,6 +806,9 @@ def render_split_screen_comparison_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """3. Split-screen comparison layout: Left (Legacy) vs Right (Jevyam AI)."""
     img = Image.new("RGBA", CANVAS_SIZE, (15, 23, 42, 255))
@@ -741,7 +820,7 @@ def render_split_screen_comparison_layout(
 
     # Top Header across full banner
     draw_jevyam_logo(draw, x=70, y=60, is_dark=True, img=img)
-    draw_tagline(draw, text="ARCHITECTURAL COMPARISON", x_right=1130, y=65, is_dark=True)
+    draw_tagline(draw, text=tagline or "ARCHITECTURAL COMPARISON", x_right=1130, y=65, is_dark=True)
 
     # Headline spanning top
     font_hl = get_font(44, bold=True)
@@ -759,17 +838,18 @@ def render_split_screen_comparison_layout(
     # Left Column: Legacy Approach
     left_x = 70
     draw.text((left_x, top_end_y + 60), "LEGACY WORKFLOW", font=get_font(22, bold=True), fill=ACCENT_CORAL)
-    legacy_pts = ["Manual script execution", "Cascading silent failures", "Unpredictable retry spikes", "Fragile batch delays"]
+    legacy_pts = ["Manual spreadsheet tracking", "Fragmented, disconnected tools", "Human error & data mismatches", "Slow turnaround & lost leads"]
     for i, lp in enumerate(legacy_pts):
         cy = top_end_y + 140 + i * 140
         draw.rounded_rectangle([left_x, cy, 540, cy + 105], radius=12, fill=(24, 34, 58, 220), outline=(244, 63, 94, 120), width=1)
         draw.text((left_x + 20, cy + 35), "✕", font=get_font(28, bold=True), fill=ACCENT_CORAL)
         draw.text((left_x + 60, cy + 38), lp, font=get_font(19, bold=False), fill=TEXT_DARK_SECONDARY)
 
-    # Right Column: Jevyam AI Architecture
+    # Right Column: Jevyam Solution
     right_x = 660
-    draw.text((right_x, top_end_y + 60), "JEVYAM AI ARCHITECTURE", font=get_font(22, bold=True), fill=ACCENT_CYAN)
-    modern_pts = (key_points or ["Autonomous agent loops", "Idempotent event queues", "Zero-loss recovery mesh", "Verified audit persistence"])[:4]
+    right_header = f"JEVYAM {service_category.upper()[:22]}" if service_category else "JEVYAM MODERN SOLUTION"
+    draw.text((right_x, top_end_y + 60), right_header, font=get_font(22, bold=True), fill=ACCENT_CYAN)
+    modern_pts = (key_points or ["Automated digital workflows", "Centralized data persistence", "Tailored operational logic", "High-visibility management dashboards"])[:4]
     while len(modern_pts) < 4:
         modern_pts.append("Sub-second live telemetry")
 
@@ -787,6 +867,9 @@ def render_data_visualization_layout(
     title: str,
     subtitle: str,
     stats: Optional[List[Tuple[str, str]]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """4. Data visualization & statistics layout with hero KPI and comparison bar chart."""
     img = create_gradient_canvas(CANVAS_SIZE, (10, 17, 40, 255), (4, 8, 20, 255))
@@ -794,7 +877,7 @@ def render_data_visualization_layout(
 
     # Header
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="BENCHMARK  ·  ANALYTICS", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "BENCHMARK  ·  ANALYTICS", x_right=1120, y=75, is_dark=True)
 
     # Headline
     font_hl = get_font(48, bold=True)

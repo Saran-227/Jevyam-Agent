@@ -1,5 +1,6 @@
 """LinkedIn Publisher: formats and dispatches approved content to Company Page."""
 
+from pathlib import Path
 from typing import Optional
 from database.models import Post, PostRevision
 from integrations.linkedin.client import LinkedInClient, LinkedInPublishResponse
@@ -52,6 +53,20 @@ class LinkedInPublisher:
         """
         formatted_text = self.format_post_text(post, revision)
         image_url = (revision.image_url if revision else post.image_url) or post.image_url
+
+        # Check for local high-resolution visual on disk first
+        for candidate_path in [
+            Path(f"data/posts/{post.post_id}.png"),
+            Path(f"data/images/{post.post_id}.png"),
+            Path(image_url) if image_url and not image_url.startswith("http") else None,
+        ]:
+            if candidate_path and candidate_path.exists() and candidate_path.is_file():
+                return self.client.publish_image_post(
+                    text=formatted_text,
+                    image_bytes=candidate_path.read_bytes(),
+                    title="Jevyam Technologies Visual",
+                )
+
         if image_url:
             return self.client.publish_image_post(text=formatted_text, image_url=image_url)
         return self.client.publish_text_post(text=formatted_text)

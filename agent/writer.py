@@ -1,7 +1,7 @@
 """LinkedIn writer module for Jevyam Technologies.
 
 Generates high-signal, human-sounding LinkedIn posts adhering strictly to
-Jevyam brand voice and factual boundaries.
+Jevyam agency service offerings, brand voice, and factual boundaries.
 """
 
 from pathlib import Path
@@ -28,11 +28,11 @@ class LinkedInPostContent(BaseModel):
     )
     hashtags: List[str] = Field(
         ...,
-        description="5 to 8 relevant hashtags prefixed with # (e.g. ['#AI', '#Automation'])",
+        description="4 to 6 relevant hashtags prefixed with # (e.g. ['#InventoryManagement', '#BusinessOperations'])",
     )
     call_to_action: str = Field(
         ...,
-        description="Thoughtful concluding question or prompt inviting authentic peer engagement",
+        description="Thoughtful concluding question or prompt inviting authentic peer engagement or service inquiry",
     )
 
     @field_validator("hashtags")
@@ -71,6 +71,10 @@ def generate_linkedin_post(
     """
     previous_summary = format_previous_posts_summary(previous_posts)
 
+    service_url = getattr(idea, "service_url", None)
+    service_name = getattr(idea, "service_name", None) or getattr(idea, "service_category", None)
+    content_format = getattr(idea, "content_format", None)
+
     prompt = render_writer_prompt(
         company_context=company_knowledge.full_context,
         brand_voice=company_knowledge.brand_voice,
@@ -79,6 +83,9 @@ def generate_linkedin_post(
         content_type=idea.content_type,
         target_audience=idea.target_audience,
         previous_posts=previous_summary,
+        service_url=service_url,
+        service_name=service_name,
+        content_format=content_format,
         prompts_dir=prompts_dir,
     )
 
@@ -87,5 +94,10 @@ def generate_linkedin_post(
         prompt=prompt,
         schema=LinkedInPostContent,
         model=model,
-        system_instruction="You are a senior tech writer for Jevyam Technologies. You write grounded, insightful LinkedIn posts without hype or fake stats.",
+        system_instruction=(
+            "You are the Senior B2B Marketing Writer for Jevyam Technologies. "
+            "You write authoritative, human-sounding LinkedIn posts that market Jevyam's agency services. "
+            "Never use fake statistics, fake case studies, or hype clichés. "
+            "Never include image generation instructions or visual concepts inside the post caption."
+        ),
     )

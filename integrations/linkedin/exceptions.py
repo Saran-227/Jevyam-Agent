@@ -16,6 +16,21 @@ class LinkedInAuthError(LinkedInError):
     pass
 
 
+class LinkedInOAuthError(LinkedInError):
+    """Raised when LinkedIn OAuth 2.0 authorization or token exchange fails."""
+    pass
+
+
+class LinkedInOAuthStateError(LinkedInOAuthError):
+    """Raised when OAuth state validation fails (missing, invalid, expired, or replayed CSRF state)."""
+    pass
+
+
+class LinkedInTokenExpiredError(LinkedInAuthError):
+    """Raised when LinkedIn OAuth access token has expired and reauthorization is needed."""
+    pass
+
+
 class LinkedInPermissionError(LinkedInError):
     """Raised when application lacks necessary scope or organizational admin permissions (403 Forbidden)."""
     pass

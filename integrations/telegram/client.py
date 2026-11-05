@@ -2,7 +2,9 @@
 
 import html
 import hmac
+import json
 import logging
+from pathlib import Path
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -81,7 +83,9 @@ class TelegramApiProvider(BaseTelegramProvider):
     def _post_with_retry(
         self,
         method: str,
-        json_payload: Dict[str, Any],
+        json_payload: Optional[Dict[str, Any]] = None,
+        data_payload: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
         max_retries: int = 2,
     ) -> Dict[str, Any]:
         """Execute HTTP POST request to Telegram Bot API with retry on transient failures."""
@@ -90,7 +94,10 @@ class TelegramApiProvider(BaseTelegramProvider):
 
         for attempt in range(max_retries + 1):
             try:
-                response = self._http_client.post(url, json=json_payload)
+                if files is not None:
+                    response = self._http_client.post(url, data=data_payload, files=files)
+                else:
+                    response = self._http_client.post(url, json=json_payload)
                 data = response.json() if response.content else {}
 
                 if response.status_code == 200 and data.get("ok"):
@@ -242,6 +249,17 @@ class TelegramApiProvider(BaseTelegramProvider):
                 error=err_msg,
             )
 
+        # Detect if a local image file is available on disk for fallback multipart delivery
+        local_img_candidate = None
+        for candidate_path in [
+            Path(f"data/posts/{payload.post_id}.png"),
+            Path(f"data/images/{payload.post_id}.png"),
+            Path(payload.image_url) if payload.image_url and not payload.image_url.startswith("http") else None,
+        ]:
+            if candidate_path and candidate_path.exists():
+                local_img_candidate = candidate_path
+                break
+
         # Case 1: Image URL is present and short caption fits (<= 1024 chars), sendPhoto with inline buttons
         if has_valid_image and len(message_text) <= 1024:
             photo_payload: Dict[str, Any] = {
@@ -262,6 +280,28 @@ class TelegramApiProvider(BaseTelegramProvider):
                     raw_response=res,
                 )
             except Exception as e:
+                # Fallback to direct multipart upload if local file exists
+                if local_img_candidate:
+                    try:
+                        logger.info(f"[INFO] Falling back to direct multipart image delivery from {local_img_candidate}...")
+                        multipart_data = {
+                            "chat_id": target_chat,
+                            "caption": message_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": json.dumps(reply_markup),
+                        }
+                        files = {"photo": (local_img_candidate.name, local_img_candidate.read_bytes(), "image/png")}
+                        res = self._post_with_retry("sendPhoto", data_payload=multipart_data, files=files)
+                        msg_id = str(res.get("result", {}).get("message_id", ""))
+                        return TelegramMessageResponse(
+                            success=True,
+                            message_id=msg_id,
+                            chat_id=target_chat,
+                            provider="telegram",
+                            raw_response=res,
+                        )
+                    except Exception as me:
+                        logger.error(f"[ERROR] Direct multipart image delivery failed: {me}")
                 safe_err = mask_sensitive_url(str(e))
                 logger.error(f"[ERROR] Failed to deliver photo approval: {safe_err}")
                 return TelegramMessageResponse(
@@ -288,14 +328,29 @@ class TelegramApiProvider(BaseTelegramProvider):
             try:
                 self._post_with_retry("sendPhoto", photo_payload)
             except Exception as e:
-                safe_err = mask_sensitive_url(str(e))
-                logger.error(f"[ERROR] Failed to deliver preview photo in linked approval: {safe_err}")
-                return TelegramMessageResponse(
-                    success=False,
-                    chat_id=target_chat,
-                    provider="telegram",
-                    error=f"Failed to deliver visual preview in linked approval: {safe_err}",
-                )
+                delivered_fallback = False
+                if local_img_candidate:
+                    try:
+                        logger.info(f"[INFO] Falling back to direct multipart preview image delivery from {local_img_candidate}...")
+                        multipart_data = {
+                            "chat_id": target_chat,
+                            "caption": photo_caption,
+                            "parse_mode": "HTML",
+                        }
+                        files = {"photo": (local_img_candidate.name, local_img_candidate.read_bytes(), "image/png")}
+                        self._post_with_retry("sendPhoto", data_payload=multipart_data, files=files)
+                        delivered_fallback = True
+                    except Exception as me:
+                        logger.error(f"[ERROR] Direct multipart preview delivery failed: {me}")
+                if not delivered_fallback:
+                    safe_err = mask_sensitive_url(str(e))
+                    logger.error(f"[ERROR] Failed to deliver preview photo in linked approval: {safe_err}")
+                    return TelegramMessageResponse(
+                        success=False,
+                        chat_id=target_chat,
+                        provider="telegram",
+                        error=f"Failed to deliver visual preview in linked approval: {safe_err}",
+                    )
 
             # Send complete caption with inline buttons
             text_payload: Dict[str, Any] = {

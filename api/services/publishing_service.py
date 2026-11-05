@@ -44,10 +44,15 @@ class PublishingService:
     ):
         self.repos = repo_manager or get_repository_manager()
         self.publisher = publisher or LinkedInPublisher()
-        has_credentials = bool(
-            settings.LINKEDIN_ACCESS_TOKEN
-            and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
-        )
+        has_credentials = False
+        try:
+            client = getattr(self.publisher, "client", None) or LinkedInClient()
+            has_credentials = bool(client.access_token and client.organization_id)
+        except Exception:
+            has_credentials = bool(
+                settings.LINKEDIN_ACCESS_TOKEN
+                and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
+            )
         if mock_mode is not None:
             self.mock_mode = mock_mode
         elif publisher is not None:

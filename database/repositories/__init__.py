@@ -120,6 +120,12 @@ def get_repository_manager(
     if has_creds:
         try:
             supabase_client = get_supabase_client()
+            # Fast connectivity probe to verify host is resolvable before binding
+            import socket
+            from urllib.parse import urlparse
+            host = urlparse(str(url)).hostname
+            if host:
+                socket.getaddrinfo(host, 443)
             return create_supabase_repository_manager(supabase_client)
         except Exception:
             return create_in_memory_repository_manager()

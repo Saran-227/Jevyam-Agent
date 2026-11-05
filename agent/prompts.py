@@ -49,10 +49,14 @@ def render_writer_prompt(
     content_type: str,
     target_audience: str,
     previous_posts: str,
+    service_url: Optional[str] = None,
+    service_name: Optional[str] = None,
+    content_format: Optional[str] = None,
     prompts_dir: Optional[Path] = None,
 ) -> str:
     """Render the writer prompt with injected variables."""
     template = load_prompt_template("writer.md", prompts_dir)
+    s_name = service_name or (content_type.split(" | ")[0] if " | " in content_type else content_type)
     return template.format(
         company_context=company_context,
         brand_voice=brand_voice,
@@ -61,6 +65,9 @@ def render_writer_prompt(
         content_type=content_type,
         target_audience=target_audience,
         previous_posts=previous_posts or "No previous posts recorded yet.",
+        service_url=service_url or "https://www.jeevyamtechnologies.com/",
+        service_name=s_name,
+        content_format=content_format or "Problem → Solution",
     )
 
 
@@ -102,6 +109,7 @@ def render_image_brief_prompt(
     hook: str,
     caption: str,
     brand_voice: str,
+    service_category: Optional[str] = None,
     prompts_dir: Optional[Path] = None,
 ) -> str:
     """Render the image brief prompt with injected variables."""
@@ -112,5 +120,6 @@ def render_image_brief_prompt(
         hook=hook,
         caption=caption,
         brand_voice=brand_voice,
+        service_category=service_category or "Custom Software Development",
     )
 

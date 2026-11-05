@@ -7,8 +7,13 @@ from database.repositories import get_repository_manager
 
 def get_approval_service() -> ApprovalService:
     """Dependency provider for ApprovalService."""
+    from api.services.publishing_service import PublishingService
+    from config.settings import settings
+
     repos = get_repository_manager()
-    return ApprovalService(repo_manager=repos)
+    is_mock = settings.LINKEDIN_MOCK_PUBLISHING or settings.DRY_RUN
+    pub_service = PublishingService(repo_manager=repos, mock_mode=is_mock)
+    return ApprovalService(repo_manager=repos, publishing_service=pub_service)
 
 
 def get_whatsapp_service() -> "WhatsAppService":
@@ -39,6 +44,14 @@ def get_telegram_service() -> "TelegramService":
     approval_service = get_approval_service()
     provider = get_telegram_provider()
     return TelegramService(approval_service=approval_service, provider=provider)
+
+
+def get_linkedin_oauth_client() -> "LinkedInOAuthClient":
+    """Dependency provider for LinkedInOAuthClient."""
+    from integrations.linkedin.oauth import get_default_oauth_client
+
+    return get_default_oauth_client()
+
 
 
 

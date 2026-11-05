@@ -1,5 +1,6 @@
 """Telegram approval notification service orchestrating dispatches and webhook callback execution."""
 
+import html
 import logging
 import threading
 from typing import Any, Dict, Optional, Set
@@ -104,10 +105,11 @@ class TelegramService:
         payload_dict: Dict[str, Any],
         secret_token_header: Optional[str] = None,
         background_tasks: Optional[Any] = None,
+        is_polling: bool = False,
     ) -> Dict[str, Any]:
         """Process incoming Telegram webhook payload securely and idempotently."""
-        # 1. Verify webhook secret token
-        if not self.provider.verify_webhook_secret(secret_token_header):
+        # 1. Verify webhook secret token (skipped for long-polling as client is authenticated directly via Bot Token)
+        if not is_polling and not self.provider.verify_webhook_secret(secret_token_header):
             logger.warning("[WARN] Telegram webhook secret verification failed.")
             return {
                 "status": "error",
@@ -175,7 +177,20 @@ class TelegramService:
 
                 # Send confirmation text back to founder
                 if target_chat:
-                    pub_text = " and published to LinkedIn Company Page." if result.published else "."
+                    if result.published and result.post_url:
+                        pub_text = (
+                            f" and published to LinkedIn Company Page!\n\n"
+                            f"🔗 <b>LinkedIn URL:</b> {result.post_url}\n"
+                            f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
+                        )
+                    elif result.published:
+                        pub_text = (
+                            f" and published to LinkedIn Company Page.\n\n"
+                            f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
+                        )
+                    else:
+                        pub_text = "."
+
                     self.provider.send_text_message(
                         chat_id=target_chat,
                         text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
@@ -189,36 +204,66 @@ class TelegramService:
                     "message": "Post approved successfully via Telegram.",
                 }
             except ApprovalAlreadyProcessedError as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"ℹ️ <b>Already Processed:</b> {html.escape(str(e))}",
+                    )
                 return {
                     "status": "ignored",
                     "code": "ALREADY_PROCESSED",
                     "message": str(e),
                 }
             except ApprovalInProgressError as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"⏳ <b>In Progress:</b> {html.escape(str(e))}",
+                    )
                 return {
                     "status": "ignored",
                     "code": "IN_PROGRESS",
                     "message": str(e),
                 }
             except ApprovalExpiredError as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"⚠️ <b>Approval Expired:</b> {html.escape(str(e))}",
+                    )
                 return {
                     "status": "expired",
                     "code": "APPROVAL_EXPIRED",
                     "message": str(e),
                 }
             except ApprovalNotFoundError as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text="❌ <b>Approval Not Found:</b> The requested post or token was not found.",
+                    )
                 return {
                     "status": "error",
                     "code": "TOKEN_NOT_FOUND",
                     "message": str(e),
                 }
             except ApprovalSupersededError as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"ℹ️ <b>Revision Superseded:</b> {html.escape(str(e))}",
+                    )
                 return {
                     "status": "ignored",
                     "code": "APPROVAL_SUPERSEDED",
                     "message": str(e),
                 }
             except Exception as e:
+                if target_chat:
+                    self.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"❌ <b>Approval Error:</b> Failed to approve post: {html.escape(str(e))}",
+                    )
                 return {
                     "status": "error",
                     "code": "PROCESSING_ERROR",
@@ -317,30 +362,55 @@ class TelegramService:
             }
         except ApprovalInProgressError as e:
             logger.info(f"Regeneration already in progress for token: {e}")
+            if target_chat:
+                self.provider.send_text_message(
+                    chat_id=target_chat,
+                    text=f"⏳ <b>Regeneration in Progress:</b> {html.escape(str(e))}",
+                )
             return {
                 "status": "ignored",
                 "code": "IN_PROGRESS",
                 "message": str(e),
             }
         except ApprovalAlreadyProcessedError as e:
+            if target_chat:
+                self.provider.send_text_message(
+                    chat_id=target_chat,
+                    text=f"ℹ️ <b>Already Processed:</b> {html.escape(str(e))}",
+                )
             return {
                 "status": "ignored",
                 "code": "ALREADY_PROCESSED",
                 "message": str(e),
             }
         except ApprovalExpiredError as e:
+            if target_chat:
+                self.provider.send_text_message(
+                    chat_id=target_chat,
+                    text=f"⚠️ <b>Approval Expired:</b> {html.escape(str(e))}",
+                )
             return {
                 "status": "expired",
                 "code": "APPROVAL_EXPIRED",
                 "message": str(e),
             }
         except ApprovalNotFoundError as e:
+            if target_chat:
+                self.provider.send_text_message(
+                    chat_id=target_chat,
+                    text="❌ <b>Approval Not Found:</b> The requested post or token was not found.",
+                )
             return {
                 "status": "error",
                 "code": "TOKEN_NOT_FOUND",
                 "message": str(e),
             }
         except ApprovalSupersededError as e:
+            if target_chat:
+                self.provider.send_text_message(
+                    chat_id=target_chat,
+                    text=f"ℹ️ <b>Revision Superseded:</b> {html.escape(str(e))}",
+                )
             return {
                 "status": "ignored",
                 "code": "APPROVAL_SUPERSEDED",

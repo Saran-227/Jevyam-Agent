@@ -230,10 +230,16 @@ class ApprovalService:
         # 3. Publish to LinkedIn if enabled
         should_publish = auto_publish if auto_publish is not None else settings.AUTO_PUBLISH_ON_APPROVAL
         pub_service = self.publishing_service
-        has_credentials = bool(
-            settings.LINKEDIN_ACCESS_TOKEN
-            and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
-        )
+        has_credentials = False
+        try:
+            from integrations.linkedin.client import LinkedInClient
+            client = LinkedInClient()
+            has_credentials = bool(client.access_token and client.organization_id)
+        except Exception:
+            has_credentials = bool(
+                settings.LINKEDIN_ACCESS_TOKEN
+                and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
+            )
         is_mock_publishing = settings.LINKEDIN_MOCK_PUBLISHING or (settings.DRY_RUN and has_credentials)
 
         if pub_service is None and should_publish:

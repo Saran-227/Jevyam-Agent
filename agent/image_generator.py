@@ -390,6 +390,19 @@ class BrandedPillowImageProvider(BaseImageProvider):
             elif topic:
                 title_cand = topic
 
+            service_cat = (
+                getattr(brief, "service_category", None)
+                or kwargs.get("service_category")
+                or kwargs.get("service_pillar")
+            )
+            if not service_cat:
+                from agent.pillars import get_pillar_by_name
+                for cand in [brief.visual_concept, topic, caption]:
+                    p = get_pillar_by_name(cand or "")
+                    if p:
+                        service_cat = p["name"]
+                        break
+
             actual_layout = detect_optimal_layout(
                 title=title_cand or "",
                 caption=caption or "",
@@ -398,11 +411,12 @@ class BrandedPillowImageProvider(BaseImageProvider):
                 previous_layouts=prev_layouts,
                 revision=revision,
                 post_id=post_id,
+                service_category=service_cat,
             )
             brief.layout = actual_layout
 
             logger.info(
-                f"Generating branded visual (layout='{actual_layout}') for post '{post_id}' (rev #{revision})..."
+                f"Generating branded visual (layout='{actual_layout}', service='{service_cat}') for post '{post_id}' (rev #{revision})..."
             )
 
             png_bytes = render_branded_image(
@@ -410,6 +424,7 @@ class BrandedPillowImageProvider(BaseImageProvider):
                 topic=topic,
                 caption=caption,
                 visual_concept=brief.visual_concept,
+                service_category=service_cat,
                 key_points=key_points,
                 layout=actual_layout,
                 previous_layouts=prev_layouts,
@@ -437,6 +452,14 @@ class BrandedPillowImageProvider(BaseImageProvider):
         try:
             with open(temp_fd, "wb") as f:
                 f.write(png_bytes)
+
+            if post_id:
+                try:
+                    local_dest = Path("data/posts") / f"{post_id}.png"
+                    local_dest.parent.mkdir(parents=True, exist_ok=True)
+                    local_dest.write_bytes(png_bytes)
+                except Exception:
+                    pass
 
             if output_path:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -623,6 +646,7 @@ def generate_image_brief(
     hook: str,
     caption: str,
     brand_voice: str,
+    service_category: Optional[str] = None,
     model: Optional[str] = None,
     prompts_dir: Optional[Path] = None,
 ) -> ImageBrief:
@@ -635,6 +659,7 @@ def generate_image_brief(
         hook: Opening hook.
         caption: Full post caption.
         brand_voice: Brand voice guidelines.
+        service_category: Optional official service category.
         model: Optional model override.
         prompts_dir: Optional custom prompts directory.
 
@@ -647,6 +672,7 @@ def generate_image_brief(
         hook=hook,
         caption=caption,
         brand_voice=brand_voice,
+        service_category=service_category,
         prompts_dir=prompts_dir,
     )
 

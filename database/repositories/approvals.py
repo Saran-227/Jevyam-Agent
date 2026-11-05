@@ -1,4 +1,8 @@
+import os
+import json
+import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Optional
 from uuid import uuid4
 from supabase import Client
@@ -8,12 +12,42 @@ from database.models import Approval, ApprovalStatus
 from database.repositories.base import BaseApprovalRepository
 from database.tokens import generate_approval_token
 
+logger = logging.getLogger("jevyam.repositories.approvals")
+
 
 class InMemoryApprovalRepository(BaseApprovalRepository):
-    """In-memory approval repository for offline testing and local development."""
+    """In-memory approval repository with disk persistence for offline testing and local development."""
 
-    def __init__(self):
+    def __init__(self, persistence_file: Optional[Path] = None):
         self._approvals: Dict[str, Approval] = {}
+        if persistence_file is not None:
+            self.persistence_file = persistence_file
+        elif os.getenv("PYTEST_CURRENT_TEST"):
+            self.persistence_file = None
+        else:
+            self.persistence_file = Path("data/approvals/approvals.json")
+        self._load()
+
+    def _load(self) -> None:
+        if self.persistence_file and self.persistence_file.exists():
+            try:
+                data = json.loads(self.persistence_file.read_text(encoding="utf-8"))
+                for token, item in data.items():
+                    try:
+                        self._approvals[token] = Approval.model_validate(item)
+                    except Exception as item_err:
+                        logger.warning(f"Skipping malformed approval entry '{token}': {item_err}")
+            except Exception as e:
+                logger.warning(f"Failed to load approvals from {self.persistence_file}: {e}")
+
+    def _save(self) -> None:
+        if self.persistence_file:
+            try:
+                self.persistence_file.parent.mkdir(parents=True, exist_ok=True)
+                data = {token: appr.model_dump(mode="json") for token, appr in self._approvals.items()}
+                self.persistence_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Failed to save approvals to {self.persistence_file}: {e}")
 
     def create_approval_request(
         self,
@@ -34,13 +68,18 @@ class InMemoryApprovalRepository(BaseApprovalRepository):
             created_at=now,
         )
         self._approvals[token] = approval.model_copy(deep=True)
+        self._save()
         return approval
 
     def get_by_token(self, approval_token: str) -> Optional[Approval]:
         appr = self._approvals.get(approval_token)
+        if not appr:
+            self._load()
+            appr = self._approvals.get(approval_token)
         return appr.model_copy(deep=True) if appr else None
 
     def get_by_post_id(self, post_id: str) -> list[Approval]:
+        self._load()
         return [
             a.model_copy(deep=True)
             for a in self._approvals.values()
@@ -49,6 +88,7 @@ class InMemoryApprovalRepository(BaseApprovalRepository):
 
     def update(self, approval: Approval) -> Approval:
         self._approvals[approval.approval_token] = approval.model_copy(deep=True)
+        self._save()
         return approval
 
     def update_status(
@@ -70,6 +110,7 @@ class InMemoryApprovalRepository(BaseApprovalRepository):
             appr.rejection_reason = rejection_reason
 
         self._approvals[approval_token] = appr.model_copy(deep=True)
+        self._save()
         return appr
 
 

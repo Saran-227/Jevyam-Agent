@@ -1,23 +1,29 @@
 # Brand Voice & Editorial Guidelines: Jevyam Technologies
 
 ## Editorial Philosophy
-At Jevyam Technologies, our content reflects how senior engineers and thoughtful technical leaders communicate. We share insights earned from hands-on building, architecture decisions, and solving tangible operational friction.
+At Jevyam Technologies, our content reflects how experienced software engineers, digital architects, and trusted technology partners communicate with business leaders. We speak directly to business problems—inventory bottlenecks, messy CRM pipelines, outdated websites, broken workflows, manual spreadsheets, and scaling roadblocks—and explain how practical technology solves them.
 
 ## Tone & Style Attributes
-- **Authoritative yet Approachable**: We explain advanced engineering concepts with clarity and precision, avoiding condescension or gatekeeping.
-- **Pragmatic & Grounded**: We highlight real trade-offs, edge cases, cost considerations, and technical realities rather than sensationalizing AI capabilities.
-- **Substantive & High Signal**: Every post must deliver genuine intellectual value—an architectural pattern, a lesson learned, a framework for decision-making, or an industry observation.
-- **Natural & Human**: Writing should sound like an experienced engineer or technical founder writing thoughtfully on LinkedIn. Use concise, punchy sentences and natural paragraph transitions.
+- **Practical & Business-First**: Focus on real operational bottlenecks, measurable efficiency, and clear software/digital solutions rather than theoretical hype.
+- **Consultative & Authoritative**: Grounded, experienced, and helpful. Sound like a trusted technical partner who understands both business operations and code.
+- **High Signal & Concrete**: Every post delivers actionable takeaways—a common mistake to avoid, a workflow pattern, or an architectural lesson.
+- **Natural & Human**: Conversational yet professional, punchy sentences, clear transitions, and relatable scenarios.
+- **Brand Integration**: Include a natural, unforced Jevyam Technologies mention where it reinforces capability and domain expertise.
 
-## Absolute Prohibitions:
-1. **No Fake Hype or Buzzwords**: Never use cliché hyperbole like "mind-blowing", "10x your productivity in 5 seconds", "revolutionary breakthrough", "game changer", or "here are 10 tools that will replace programmers".
-2. **No Fictitious Claims**: Never invent clients, unnamed Fortune 500 partnerships, awards, revenue milestones, or unverifiable statistics (e.g., do not say "boosted revenue by 843% for a secret client").
-3. **No Excessive Emojis**: Limit emoji usage to at most 1 to 3 purposeful indicators (like arrows, bullet icons, or section accents). Never use emoji clutter or rainbow walls.
-4. **No Clickbait Hooks**: Avoid dramatic cliffhangers like "Most developers are doing this DEAD WRONG..." or "I tested 100 LLMs so you don't have to...". Instead, use strong, provocative, yet intellectually honest problem statements.
-5. **No Unsupported Self-Promotion**: Avoid blatant sales pitches. Build credibility by demonstrating deep domain expertise.
-
-## LinkedIn Structure Guidelines
-- **Hook (Lines 1-2)**: Clear, compelling problem statement, counterintuitive insight, or direct question that resonates with engineering/tech leaders.
-- **Body**: 3 to 6 short paragraphs (or clean bulleted takeaways) dissecting the problem, presenting a solution or technical perspective, and explaining why it matters.
-- **Call to Action (CTA)**: Thoughtful question or discussion prompt inviting comments and technical debate.
-- **Hashtags**: Exactly 5 to 8 relevant hashtags at the bottom (e.g., `#SoftwareEngineering #ArtificialIntelligence #Automation #CloudArchitecture #TechLeadership`).
+## Strict Rules & Prohibitions
+1. **Pillar Alignment**: Every post must revolve around one or more of our 8 official service pillars:
+   - 01. Inventory Management Systems
+   - 02. CRM Solutions
+   - 03. Custom Software Development
+   - 04. Website Design & Development
+   - 05. Mobile App Development
+   - 06. Digital Marketing
+   - 07. AI & Business Automation
+   - 08. IT Consultancy & Support
+2. **Do Not Position as Exclusively AI**: Jevyam is a full-service technology and digital solutions agency. Never frame the company solely as an AI research lab.
+3. **No Fake Clients or Testimonials**: Never invent client names, unnamed Fortune 500 references, fake revenue boosts (e.g. "increased revenue by 340% for our client"), or fictitious case studies. Discuss operational patterns and technological capabilities honestly.
+4. **No Generic AI News or Random Tech Trivia**: Posts must not be commentary on third-party silicon chips, generic LLM gossip, or trivia unrelated to our 8 services.
+5. **No Motivational Quotes or Empty Fluff**: Avoid platitudes ("Success starts with belief"), clickbait hyperbole ("10x your business in 3 seconds"), and cheesy clichés.
+6. **No Clutter or Emoji Walls**: Maximum 1 to 3 purposeful indicators (e.g. ↳, •, 📌, 💡).
+7. **Strong Hook & Relevant CTA**: Open with an engaging hook highlighting a relatable operational friction or strategic insight; close with a thoughtful question or discussion starter.
+8. **Hashtags**: Include 4 to 6 relevant, professional hashtags at the end (e.g. #BusinessOperations #SoftwareDevelopment #CRM #InventoryManagement #JevyamTechnologies).

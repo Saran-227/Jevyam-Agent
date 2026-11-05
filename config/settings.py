@@ -7,8 +7,8 @@ load_dotenv()
 
 class Settings:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-    GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
     GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
     IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "branded").lower().strip()
     REQUIRE_POST_IMAGE = os.getenv("REQUIRE_POST_IMAGE", "true").lower() in ("true", "1", "yes")
@@ -23,6 +23,17 @@ class Settings:
     LINKEDIN_ORGANIZATION_ID = os.getenv("LINKEDIN_ORGANIZATION_ID")
     AUTO_PUBLISH_ON_APPROVAL = os.getenv("AUTO_PUBLISH_ON_APPROVAL", "true").lower() in ("true", "1", "yes")
     LINKEDIN_MOCK_PUBLISHING = os.getenv("LINKEDIN_MOCK_PUBLISHING", "").lower() in ("true", "1", "yes")
+    LINKEDIN_API_VERSION = os.getenv("LINKEDIN_API_VERSION", "202610")
+    LINKEDIN_REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
+    LINKEDIN_TOKEN_FILE_PATH = os.getenv("LINKEDIN_TOKEN_FILE_PATH", "data/oauth/linkedin_token.json")
+
+    @property
+    def effective_linkedin_redirect_uri(self) -> str:
+        """Normalized registered LinkedIn OAuth redirect URI."""
+        if self.LINKEDIN_REDIRECT_URI:
+            return self.LINKEDIN_REDIRECT_URI.strip()
+        base = (self.APP_BASE_URL or "http://127.0.0.1:8000").rstrip("/")
+        return f"{base}/auth/linkedin/callback"
 
     APP_BASE_URL = os.getenv("APP_BASE_URL") or "http://127.0.0.1:8000"
     APP_ENV = os.getenv("APP_ENV", "development")
