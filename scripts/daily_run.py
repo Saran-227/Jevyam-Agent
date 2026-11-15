@@ -20,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.exceptions import ConfigurationError, DailyOrchestrationError
 from agent.orchestrator import DailyOrchestrator, DailyRunResult
+from agent.scheduler import DailyScheduler, SchedulerStateStore
 from config.settings import settings
+from database.repositories import get_repository_manager
 
 
 def configure_logging(verbose: bool = False) -> None:
@@ -226,16 +228,25 @@ def main() -> int:
 
     try:
         posts_dir_path = Path(args.posts_dir) if args.posts_dir else None
+        repo_mgr = get_repository_manager(use_in_memory=args.in_memory)
+        state_store = SchedulerStateStore(repository=repo_mgr.scheduler_runs)
+
         orchestrator = DailyOrchestrator(
+            repo_manager=repo_mgr,
             gemini_client=gemini_client,
             use_in_memory_db=args.in_memory,
             posts_dir=posts_dir_path,
         )
-        result: DailyRunResult = orchestrator.run(
-            mode=mode,
+        scheduler = DailyScheduler(
+            orchestrator=orchestrator,
+            state_store=state_store,
+            max_retries=3,
+            retry_delay_seconds=2.0,
+        )
+        result: DailyRunResult = scheduler.execute_daily_run(
+            target_date_str=args.date,
             force=args.force,
-            date_str=args.date,
-            activity=args.activity,
+            mode=mode,
         )
 
         if result.success:

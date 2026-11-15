@@ -156,24 +156,47 @@ class LinkedInTokenStore:
         }
 
     def get_token_data(self) -> Optional[Dict[str, Any]]:
-        """Retrieve stored token data from cache or disk."""
+        """Retrieve stored token data from cache, environment secret, or disk."""
         with self._lock:
             if self._cached_data is not None:
                 return self._cached_data.copy()
 
-            if not self.storage_path.exists():
-                return None
-
-            try:
-                with open(self.storage_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+            # 1. Environment variable LINKEDIN_TOKEN_DATA (Full JSON payload)
+            env_token_data = os.getenv("LINKEDIN_TOKEN_DATA")
+            if env_token_data:
+                try:
+                    data = json.loads(env_token_data)
                     if isinstance(data, dict) and "access_token" in data:
                         self._cached_data = data
                         return data.copy()
-            except Exception as e:
-                logger.error(f"Error reading LinkedIn token storage file: {e}")
-                return None
-        return None
+                except Exception:
+                    pass
+
+            # 2. Local token file on disk if exists
+            if self.storage_path.exists():
+                try:
+                    with open(self.storage_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict) and "access_token" in data:
+                            self._cached_data = data
+                            return data.copy()
+                except Exception as e:
+                    logger.error(f"Error reading LinkedIn token storage file: {e}")
+
+            # 3. Static LINKEDIN_ACCESS_TOKEN from settings (GitHub Actions Secrets fallback)
+            static_token = (getattr(settings, "LINKEDIN_ACCESS_TOKEN", None) or "").strip()
+            if static_token and not static_token.startswith("your_"):
+                synthetic = {
+                    "access_token": static_token,
+                    "expires_in": 5184000,
+                    "expires_at": time.time() + 5184000,
+                    "obtained_at": datetime.now(timezone.utc).isoformat(),
+                    "scope": "w_organization_social",
+                }
+                self._cached_data = synthetic
+                return synthetic.copy()
+
+            return None
 
     def get_access_token(self, safety_margin_seconds: int = 60) -> Optional[str]:
         """Return the active access token if present and not expired."""

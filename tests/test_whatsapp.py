@@ -14,6 +14,7 @@ from agent.image_generator import ImageBrief
 from api.dependencies import get_approval_service, get_whatsapp_service
 from api.main import app
 from api.services.approval_service import ApprovalService
+from api.services.publishing_service import PublishingService
 from api.services.whatsapp_service import WhatsAppService
 from config.settings import settings
 from database.models import Approval, ApprovalStatus, Post, PostRevision, PostStatus
@@ -240,7 +241,11 @@ def test_approval_message_construction():
 # 5. YES callback mapping
 # ==============================================================================
 def test_yes_callback_mapping(mock_repo_manager, sample_draft_post):
-    approval_service = ApprovalService(repo_manager=mock_repo_manager)
+    pub_service = PublishingService(repo_manager=mock_repo_manager, mock_mode=True)
+    approval_service = ApprovalService(
+        repo_manager=mock_repo_manager,
+        publishing_service=pub_service,
+    )
     create_res = approval_service.create_approval_request("JVY-20260929-001")
     token = create_res.approval_token
 

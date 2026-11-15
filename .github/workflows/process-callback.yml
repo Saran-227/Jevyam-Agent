@@ -1,0 +1,113 @@
+name: Process Telegram Approval Callback
+
+on:
+  repository_dispatch:
+    types: [telegram-callback]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to execute (approve or reject)'
+        required: true
+        type: choice
+        options:
+          - approve
+          - reject
+      token:
+        description: 'Single-use approval token'
+        required: true
+        type: string
+      chat_id:
+        description: 'Telegram chat ID'
+        required: false
+        type: string
+        default: '8164283098'
+      user_id:
+        description: 'Telegram user ID'
+        required: false
+        type: string
+        default: '8164283098'
+      dry_run:
+        description: 'Run in mock/dry-run mode (safe: no real LinkedIn publishing)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: telegram-callback-${{ github.event.client_payload.token || inputs.token }}
+  cancel-in-progress: false
+
+jobs:
+  process-founder-callback:
+    name: Process Founder Approval Decision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Graphics Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libfreetype6-dev libjpeg-dev zlib1g-dev fonts-dejavu-core
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Telegram Callback Decision Handler
+        env:
+          # Production Core Settings
+          DRY_RUN: ${{ (inputs.dry_run || github.event.client_payload.dry_run) && 'true' || 'false' }}
+          LINKEDIN_MOCK_PUBLISHING: 'false'
+          AUTO_PUBLISH_ON_APPROVAL: 'true'
+          APPROVAL_PROVIDER: 'telegram'
+          TIMEZONE: 'Asia/Kolkata'
+
+          # Cloud Persistent Storage (Supabase)
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_IMAGE_BUCKET: 'post-images'
+
+          # AI Content Generation (Gemini)
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+          # Telegram Delivery & Strict Founder Authorization
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_FOUNDER_CHAT_ID: ${{ secrets.TELEGRAM_FOUNDER_CHAT_ID || '8164283098' }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+
+          # LinkedIn Production Configuration
+          LINKEDIN_ORGANIZATION_ID: ${{ secrets.LINKEDIN_ORGANIZATION_ID || '108376955' }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          LINKEDIN_API_VERSION: '202610'
+
+          # Callback Event Parameters (Sanitized)
+          ACTION: ${{ github.event.client_payload.action || inputs.action }}
+          TOKEN: ${{ github.event.client_payload.token || inputs.token }}
+          CHAT_ID: ${{ github.event.client_payload.chat_id || inputs.chat_id || '8164283098' }}
+          USER_ID: ${{ github.event.client_payload.user_id || inputs.user_id || '8164283098' }}
+          CALLBACK_QUERY_ID: ${{ github.event.client_payload.callback_query_id || '' }}
+        run: |
+          # Sanitize action parameter
+          NORM_ACTION=$(echo "$ACTION" | tr '[:upper:]' '[:lower:]' | xargs)
+          FLAGS="--action $NORM_ACTION --token $TOKEN --chat-id $CHAT_ID --user-id $USER_ID"
+          if [ -n "$CALLBACK_QUERY_ID" ]; then
+            FLAGS="$FLAGS --callback-query-id $CALLBACK_QUERY_ID"
+          fi
+          if [ "${{ inputs.dry_run || github.event.client_payload.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+
+          echo "Invoking: python scripts/process_telegram_callback.py --action $NORM_ACTION [masked-token]"
+          python scripts/process_telegram_callback.py $FLAGS
+

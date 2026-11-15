@@ -88,10 +88,23 @@ class LinkedInClient:
 
     @property
     def organization_urn(self) -> str:
-        """Formatted LinkedIn Organization URN."""
-        clean_id = self.organization_id
-        if clean_id.startswith("urn:li:"):
+        """Formatted LinkedIn Organization URN.
+
+        Strictly enforces company page destination (urn:li:organization:...).
+        Rejects personal profile URNs (urn:li:person:...).
+        """
+        clean_id = str(self.organization_id or "").strip()
+        if clean_id.startswith("urn:li:organization:"):
             return clean_id
+        if clean_id.startswith("urn:li:person:"):
+            raise LinkedInPermissionError(
+                f"Invalid author URN '{clean_id}'. Publishing to personal LinkedIn profiles is strictly forbidden. "
+                "Target must be a LinkedIn Company Page (urn:li:organization:...)."
+            )
+        if clean_id.startswith("urn:li:"):
+            raise LinkedInPermissionError(
+                f"Invalid author URN '{clean_id}'. Publishing target must be a LinkedIn Company Page (urn:li:organization:...)."
+            )
         return f"urn:li:organization:{clean_id}"
 
     def validate_credentials(self) -> None:
@@ -99,15 +112,27 @@ class LinkedInClient:
 
         Raises:
             LinkedInTokenExpiredError: If stored OAuth token has expired and no valid static fallback exists.
+            LinkedInPermissionError: If OAuth token lacks required w_organization_social scope or invalid author.
             MissingLinkedInCredentialsError: If access token or organization ID is missing or placeholder.
         """
-        # If an OAuth token exists but is expired, and no explicit token was passed
+        # Validate author URN is strictly an organization URN
+        _ = self.organization_urn
+
+        # If an OAuth token exists, validate expiration and required scopes
         if not self._explicit_access_token and self.token_store and self.token_store.has_token():
             if self.token_store.is_expired():
                 static_fallback = (settings.LINKEDIN_ACCESS_TOKEN or "").strip()
                 if not static_fallback or static_fallback.startswith("your_"):
                     raise LinkedInTokenExpiredError(
                         "LinkedIn OAuth access token has expired. Reauthorization required via /auth/linkedin/authorize."
+                    )
+            token_data = self.token_store.get_token_data()
+            if token_data and "scope" in token_data:
+                scopes = token_data.get("scope", "")
+                if "w_organization_social" not in scopes:
+                    raise LinkedInPermissionError(
+                        f"LinkedIn OAuth token lacks mandatory 'w_organization_social' scope (found scopes: '{scopes}'). "
+                        "Reauthorization required with w_organization_social."
                     )
 
         token = self.access_token

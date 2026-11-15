@@ -24,10 +24,13 @@ from api.services.approval_service import ApprovalService
 from api.services.publishing_service import PublishingService
 from api.services.telegram_service import TelegramService
 from config.settings import settings
+from config.settings import settings
 from database.models import Approval, ApprovalStatus, Post, PostRevision, PostStatus
 from database.repositories import create_in_memory_repository_manager
 from integrations.telegram.mock import MockTelegramProvider
 from integrations.telegram.models import TelegramWebhookEvent
+
+FOUNDER_ID = int(settings.TELEGRAM_FOUNDER_CHAT_ID or 0)
 
 
 @pytest.fixture
@@ -116,8 +119,8 @@ def test_telegram_yes_callback_flow(test_setup):
         "update_id": 10001,
         "callback_query": {
             "id": "cb_query_yes_123",
-            "from": {"id": 1293148688, "first_name": "Founder"},
-            "message": {"message_id": 19, "chat": {"id": 1293148688}},
+            "from": {"id": FOUNDER_ID, "first_name": "Founder"},
+            "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
             "data": f"approve:{token}",
         },
     }
@@ -156,8 +159,8 @@ def test_telegram_duplicate_clicks_prevented(test_setup):
         "update_id": 10002,
         "callback_query": {
             "id": "cb_query_first",
-            "from": {"id": 1293148688},
-            "message": {"message_id": 19, "chat": {"id": 1293148688}},
+            "from": {"id": FOUNDER_ID},
+            "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
             "data": f"approve:{token}",
         },
     }
@@ -174,8 +177,8 @@ def test_telegram_duplicate_clicks_prevented(test_setup):
         "update_id": 10003,
         "callback_query": {
             "id": "cb_query_new_id",
-            "from": {"id": 1293148688},
-            "message": {"message_id": 19, "chat": {"id": 1293148688}},
+            "from": {"id": FOUNDER_ID},
+            "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
             "data": f"approve:{token}",
         },
     }
@@ -193,8 +196,8 @@ def test_telegram_invalid_token_handling(test_setup):
         "update_id": 10004,
         "callback_query": {
             "id": "cb_query_invalid",
-            "from": {"id": 1293148688},
-            "message": {"message_id": 19, "chat": {"id": 1293148688}},
+            "from": {"id": FOUNDER_ID},
+            "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
             "data": "approve:appr_nonexistent_token_12345",
         },
     }
@@ -227,8 +230,8 @@ def test_telegram_expired_token_handling(test_setup):
         "update_id": 10005,
         "callback_query": {
             "id": "cb_query_expired",
-            "from": {"id": 1293148688},
-            "message": {"message_id": 19, "chat": {"id": 1293148688}},
+            "from": {"id": FOUNDER_ID},
+            "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
             "data": f"approve:{expired_approval.approval_token}",
         },
     }
@@ -277,8 +280,8 @@ def test_telegram_no_reject_flow(test_setup):
             "update_id": 10006,
             "callback_query": {
                 "id": "cb_query_no",
-                "from": {"id": 1293148688},
-                "message": {"message_id": 19, "chat": {"id": 1293148688}},
+                "from": {"id": FOUNDER_ID},
+                "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
                 "data": f"reject:{token}",
             },
         }
@@ -316,8 +319,8 @@ def test_telegram_webhook_http_endpoint(test_setup):
                 "update_id": 10007,
                 "callback_query": {
                     "id": "cb_query_http",
-                    "from": {"id": 1293148688},
-                    "message": {"message_id": 19, "chat": {"id": 1293148688}},
+                    "from": {"id": FOUNDER_ID},
+                    "message": {"message_id": 19, "chat": {"id": FOUNDER_ID}},
                     "data": f"approve:{token}",
                 },
             },

@@ -11,19 +11,30 @@ ON CONFLICT (id) DO UPDATE SET public = true;
 DROP POLICY IF EXISTS "Public Read Access on post-images" ON storage.objects;
 CREATE POLICY "Public Read Access on post-images"
 ON storage.objects FOR SELECT
+TO public
 USING (bucket_id = 'post-images');
 
--- 3. Allow anon and service_role uploads (INSERT) into post-images bucket
+-- 3. Allow ONLY service_role uploads (INSERT) into post-images bucket
 DROP POLICY IF EXISTS "Allow Upload to post-images" ON storage.objects;
-CREATE POLICY "Allow Upload to post-images"
+DROP POLICY IF EXISTS "Service Role Upload to post-images" ON storage.objects;
+CREATE POLICY "Service Role Upload to post-images"
 ON storage.objects FOR INSERT
-TO anon, authenticated, service_role
+TO service_role
 WITH CHECK (bucket_id = 'post-images');
 
--- 4. Allow anon and service_role updates/upserts into post-images bucket
+-- 4. Allow ONLY service_role updates/upserts into post-images bucket
 DROP POLICY IF EXISTS "Allow Update in post-images" ON storage.objects;
-CREATE POLICY "Allow Update in post-images"
+DROP POLICY IF EXISTS "Service Role Update in post-images" ON storage.objects;
+CREATE POLICY "Service Role Update in post-images"
 ON storage.objects FOR UPDATE
-TO anon, authenticated, service_role
+TO service_role
 USING (bucket_id = 'post-images')
 WITH CHECK (bucket_id = 'post-images');
+
+-- 5. Allow ONLY service_role deletions from post-images bucket
+DROP POLICY IF EXISTS "Allow Delete from post-images" ON storage.objects;
+DROP POLICY IF EXISTS "Service Role Delete from post-images" ON storage.objects;
+CREATE POLICY "Service Role Delete from post-images"
+ON storage.objects FOR DELETE
+TO service_role
+USING (bucket_id = 'post-images');

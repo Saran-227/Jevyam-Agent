@@ -11,6 +11,7 @@ from agent.image_generator import ImageBrief
 from api.dependencies import get_approval_service
 from api.main import app
 from api.services.approval_service import ApprovalService
+from api.services.publishing_service import PublishingService
 from database.models import ApprovalStatus, Post, PostRevision, PostStatus
 from database.repositories import create_in_memory_repository_manager
 
@@ -113,9 +114,11 @@ def mock_gemini_client():
 @pytest.fixture
 def client_and_service(mock_repo_manager, mock_gemini_client):
     """TestClient wired with in-memory repository and mocked Gemini."""
+    pub_service = PublishingService(repo_manager=mock_repo_manager, mock_mode=True)
     service = ApprovalService(
         repo_manager=mock_repo_manager,
         gemini_client=mock_gemini_client,
+        publishing_service=pub_service,
     )
 
     app.dependency_overrides[get_approval_service] = lambda: service

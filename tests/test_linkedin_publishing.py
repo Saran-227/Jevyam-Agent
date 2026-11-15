@@ -777,8 +777,7 @@ def test_linkedin_mock_publishing_with_image(mock_repo_manager):
     appr = mock_repo_manager.approvals.create_approval_request(post_id=post_id, revision_number=1)
     mock_repo_manager.approvals.update_status(appr.approval_token, ApprovalStatus.APPROVED)
 
-    publishing_service = PublishingService(repo_manager=mock_repo_manager)
-    # Using mock mode (default when client has no token or settings.LINKEDIN_MOCK_PUBLISHING=True)
+    publishing_service = PublishingService(repo_manager=mock_repo_manager, mock_mode=True)
     result = publishing_service.publish_approved_post(post_id)
 
     assert result["external_post_id"].startswith("urn:li:share:mock_")

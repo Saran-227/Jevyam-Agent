@@ -171,7 +171,37 @@ COMMENT ON COLUMN publications.target_urn IS 'Destination entity URN (e.g. urn:l
 
 
 -- ==============================================================================
--- 7. INDEXES
+-- 7. SCHEDULER RUNS TABLE
+-- Tracks daily automated execution cycles to guarantee strict idempotency
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS scheduler_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    execution_key TEXT UNIQUE NOT NULL,                   -- e.g. DAILY-RUN-20261112
+    date TEXT NOT NULL,                                   -- e.g. 2026-11-12
+    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'SUCCESS', 'SKIPPED', 'FAILED')),
+    post_id TEXT REFERENCES posts(post_id) ON DELETE SET NULL,
+    revision INTEGER,
+    triggered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    is_missed_run_recovery BOOLEAN NOT NULL DEFAULT false,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE scheduler_runs IS 'Tracks daily marketing agent generation executions for idempotency and disaster recovery';
+COMMENT ON COLUMN scheduler_runs.execution_key IS 'Unique key per Indian calendar date (DAILY-RUN-YYYYMMDD)';
+COMMENT ON COLUMN scheduler_runs.status IS 'RUNNING, SUCCESS, SKIPPED, or FAILED';
+
+DROP TRIGGER IF EXISTS trigger_scheduler_runs_updated_at ON scheduler_runs;
+CREATE TRIGGER trigger_scheduler_runs_updated_at
+    BEFORE UPDATE ON scheduler_runs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ==============================================================================
+-- 8. INDEXES
 -- Optimize querying by post_id, status, dates, and approval tokens
 -- ==============================================================================
 CREATE INDEX IF NOT EXISTS idx_posts_post_id ON posts(post_id);
@@ -190,39 +220,56 @@ CREATE INDEX IF NOT EXISTS idx_publications_post_id ON publications(post_id);
 CREATE INDEX IF NOT EXISTS idx_publications_status ON publications(status);
 CREATE INDEX IF NOT EXISTS idx_publications_created_at ON publications(created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_date ON scheduler_runs(date);
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_status ON scheduler_runs(status);
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_execution_key ON scheduler_runs(execution_key);
 
 -- ==============================================================================
--- 8. ROW LEVEL SECURITY (RLS) POLICIES
--- Enable RLS and establish backend service access policies
+-- 9. ROW LEVEL SECURITY (RLS) POLICIES
+-- Enable strict RLS: access restricted solely to backend service_role
 -- ==============================================================================
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_revisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE publications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduler_runs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow full access to companies" ON companies;
-CREATE POLICY "Allow full access to companies" ON companies FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Service Role full access on companies" ON companies;
+CREATE POLICY "Service Role full access on companies" ON companies FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow full access to posts" ON posts;
-CREATE POLICY "Allow full access to posts" ON posts FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Service Role full access on posts" ON posts;
+CREATE POLICY "Service Role full access on posts" ON posts FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow full access to post_revisions" ON post_revisions;
-CREATE POLICY "Allow full access to post_revisions" ON post_revisions FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Service Role full access on post_revisions" ON post_revisions;
+CREATE POLICY "Service Role full access on post_revisions" ON post_revisions FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow full access to approvals" ON approvals;
-CREATE POLICY "Allow full access to approvals" ON approvals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Service Role full access on approvals" ON approvals;
+CREATE POLICY "Service Role full access on approvals" ON approvals FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow full access to publications" ON publications;
-CREATE POLICY "Allow full access to publications" ON publications FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Service Role full access on publications" ON publications;
+CREATE POLICY "Service Role full access on publications" ON publications FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow full access to scheduler_runs" ON scheduler_runs;
+DROP POLICY IF EXISTS "Service Role full access on scheduler_runs" ON scheduler_runs;
+CREATE POLICY "Service Role full access on scheduler_runs" ON scheduler_runs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ==============================================================================
--- 9. PERMISSIONS / GRANTS
--- Ensure anon, authenticated, and service_role have full access to public schema tables
+-- 10. PERMISSIONS / GRANTS
+-- Strictly grant table privileges to service_role; revoke from anon and authenticated
 -- ==============================================================================
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM anon, authenticated;
+
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 
 

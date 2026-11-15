@@ -936,6 +936,9 @@ def render_isometric_infrastructure_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """5. Isometric infrastructure illustration with tiered 3D architectural cubes."""
     img = create_gradient_canvas(CANVAS_SIZE, (8, 14, 36, 255), (4, 8, 20, 255))
@@ -948,7 +951,7 @@ def render_isometric_infrastructure_layout(
         draw.line([(0, y), (1200, y)], fill=(25, 45, 95, 30), width=1)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="SYSTEM  ·  INFRASTRUCTURE", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "SYSTEM  ·  INFRASTRUCTURE", x_right=1120, y=75, is_dark=True)
 
     # Headline
     font_hl = get_font(50, bold=True)
@@ -1003,13 +1006,16 @@ def render_timeline_roadmap_layout(
     title: str,
     subtitle: str,
     steps: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """6. Timeline & roadmap layout with chronological milestones and progress line."""
     img = create_gradient_canvas(CANVAS_SIZE, (248, 250, 252, 255), (237, 242, 247, 255))
     draw = ImageDraw.Draw(img)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=False, img=img)
-    draw_tagline(draw, text="EVOLUTION  ·  ROADMAP", x_right=1120, y=75, is_dark=False)
+    draw_tagline(draw, text=tagline or "EVOLUTION  ·  ROADMAP", x_right=1120, y=75, is_dark=False)
 
     font_hl = get_font(46, bold=True)
     hl_lines = wrap_text_to_lines(draw, title, font_hl, max_width=1000)
@@ -1023,10 +1029,10 @@ def render_timeline_roadmap_layout(
     draw.line([(spine_x, end_y + 60), (spine_x, 1080)], fill=ACCENT_BLUE, width=6)
 
     milestones = (steps or [
-        "Phase 01: Systems Discovery & Auditing",
-        "Phase 02: Resilient Cloud Architecture Design",
-        "Phase 03: Autonomous Multi-Agent Integration",
-        "Phase 04: Production Scale & Live Telemetry",
+        "Stage 01: Systems Discovery & Auditing",
+        "Stage 02: Resilient Cloud Architecture Design",
+        "Stage 03: Autonomous Multi-Agent Integration",
+        "Stage 04: Production Scale & Live Telemetry",
     ])[:4]
 
     for idx, ms in enumerate(milestones):
@@ -1049,13 +1055,16 @@ def render_process_flow_layout(
     title: str,
     subtitle: str,
     steps: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """7. Process flow diagram with connected directional pipeline stages."""
     img = create_gradient_canvas(CANVAS_SIZE, (11, 19, 43, 255), (6, 10, 24, 255))
     draw = ImageDraw.Draw(img)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="INGESTION  ·  TRANSFORM  ·  DEPLOY", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "INGESTION  ·  TRANSFORM  ·  DEPLOY", x_right=1120, y=75, is_dark=True)
 
     font_hl = get_font(48, bold=True)
     hl_lines = wrap_text_to_lines(draw, title, font_hl, max_width=1000)
@@ -1097,6 +1106,9 @@ def render_magazine_cover_layout(
     title: str,
     subtitle: str,
     features: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """8. Bold publication magazine cover with masthead, teaser cards, and barcode."""
     img = create_radial_spotlight_canvas(CANVAS_SIZE, (4, 7, 16, 255), (0, 102, 255), (1000, 200), radius=550)
@@ -1107,7 +1119,7 @@ def render_magazine_cover_layout(
 
     # Magazine Masthead
     draw.text((80, 75), "JEVYAM TECH REVIEW", font=get_font(28, bold=True), fill=TEXT_DARK_PRIMARY)
-    draw_tagline(draw, text="VOL. 26 // SPECIAL AI ISSUE", x_right=1120, y=85, is_dark=True)
+    draw_tagline(draw, text=tagline or "VOL. 26 // SPECIAL B2B ISSUE", x_right=1120, y=85, is_dark=True)
     draw.line([(80, 130), (1120, 130)], fill=(0, 210, 255, 180), width=3)
 
     # Massive hero title
@@ -1127,7 +1139,7 @@ def render_magazine_cover_layout(
     draw.rounded_rectangle([story_x, 480, 1120, 850], radius=16, fill=(17, 28, 56, 200), outline=ACCENT_BLUE, width=1)
     draw.text((story_x + 25, 510), "INSIDE THIS BRIEF", font=get_font(16, bold=True), fill=ACCENT_CYAN)
 
-    stories = (features or ["Multi-Agent Failure Boundaries", "Zero-Cost Visual Rendering", "Idempotent Event Systems"])[:3]
+    stories = (features or ["Tailored Business Software", "Operational Data Pipelines", "End-to-End Enterprise Systems"])[:3]
     for idx, st in enumerate(stories):
         sy = 560 + idx * 85
         draw.text((story_x + 25, sy), f"// 0{idx + 1}", font=get_font(15, bold=True), fill=ACCENT_DEEP_BLUE)
@@ -1154,6 +1166,9 @@ def render_geometric_abstract_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """9. Dynamic angled geometric ribbons and glassmorphism abstract layout."""
     img = create_gradient_canvas(CANVAS_SIZE, (4, 7, 20, 255), (14, 26, 60, 255))
@@ -1165,7 +1180,7 @@ def render_geometric_abstract_layout(
     draw.polygon([(1000, 0), (1200, 0), (1200, 800)], fill=(20, 184, 166, 30))
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="VISION  ·  IMPACT  ·  SCALE", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "VISION  ·  IMPACT  ·  SCALE", x_right=1120, y=75, is_dark=True)
 
     # Hero Headline
     font_hl = get_font(52, bold=True)
@@ -1181,7 +1196,7 @@ def render_geometric_abstract_layout(
         draw.text((120, card_y + 35 + idx * 38), sl, font=font_sub, fill=TEXT_DARK_PRIMARY)
 
     # 3 Floating angled pills at bottom
-    pts = (key_points or ["Autonomous Intelligence", "Resilient State Mesh", "Verified Enterprise Impact"])[:3]
+    pts = (key_points or ["Business Transformation", "Enterprise Architecture", "Measurable Growth"])[:3]
     pill_y = 960
     pill_w = 320
     for idx, p in enumerate(pts):
@@ -1198,6 +1213,9 @@ def render_quote_insight_layout(
     title: str,
     subtitle: str,
     key_points: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """10. Executive thought-leadership quote card with giant cyan quotation marks."""
     img = create_gradient_canvas(CANVAS_SIZE, (10, 17, 40, 255), (5, 9, 22, 255))
@@ -1206,7 +1224,7 @@ def render_quote_insight_layout(
     draw_glow_circle(img, 600, 500, 320, (0, 210, 255), max_alpha=40)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="THOUGHT LEADERSHIP", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "THOUGHT LEADERSHIP", x_right=1120, y=75, is_dark=True)
 
     # Giant decorative quotation mark “
     draw.text((80, 150), "“", font=get_font(180, bold=True), fill=ACCENT_CYAN)
@@ -1230,7 +1248,8 @@ def render_quote_insight_layout(
 
     # Attribution block
     draw.text((100, div_y + 40), "JEVYAM TECHNOLOGIES", font=get_font(24, bold=True), fill=TEXT_DARK_PRIMARY)
-    draw.text((100, div_y + 80), "Engineering & AI Practice · Autonomous Systems Blueprint", font=get_font(18, bold=False), fill=ACCENT_CYAN)
+    sub_title_attr = f"{service_category} Practice · Technology Agency Blueprint" if service_category else "Engineering & Solutions Practice · Enterprise Blueprint"
+    draw.text((100, div_y + 80), sub_title_attr, font=get_font(18, bold=False), fill=ACCENT_CYAN)
 
     return img
 
@@ -1240,13 +1259,16 @@ def render_layered_cards_layout(
     title: str,
     subtitle: str,
     features: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
     """11. Layered overlapping cards creating tangible depth and visual elevation."""
     img = create_gradient_canvas(CANVAS_SIZE, (241, 245, 249, 255), (226, 232, 240, 255))
     draw = ImageDraw.Draw(img)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=False, img=img)
-    draw_tagline(draw, text="FOUNDATION  ·  PILLARS", x_right=1120, y=75, is_dark=False)
+    draw_tagline(draw, text=tagline or "FOUNDATION  ·  PILLARS", x_right=1120, y=75, is_dark=False)
 
     font_hl = get_font(48, bold=True)
     hl_lines = wrap_text_to_lines(draw, title, font_hl, max_width=900)
@@ -1256,24 +1278,21 @@ def render_layered_cards_layout(
         end_y += 60
 
     # 3 Cascading Layered Cards
-    # Card 3 (Bottom background card)
     draw.rounded_rectangle([130, end_y + 70, 1070, end_y + 470], radius=24, fill=(210, 220, 235, 140), outline=SLATE_BORDER, width=2)
-    # Card 2 (Middle card)
     draw.rounded_rectangle([105, end_y + 45, 1095, end_y + 445], radius=24, fill=(235, 240, 248, 200), outline=SLATE_BORDER, width=2)
-    # Card 1 (Front active card)
+
     card_x1, card_y1 = 80, end_y + 20
     card_x2, card_y2 = 1120, end_y + 420
     draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=24, fill=CLEAN_WHITE, outline=ACCENT_BLUE, width=3)
 
-    # Active Card Content
-    draw.text((card_x1 + 45, card_y1 + 40), "CORE PLATFORM CAPABILITIES", font=get_font(18, bold=True), fill=ACCENT_DEEP_BLUE)
+    card_header = f"OFFICIAL CAPABILITY // {service_category.upper()[:26]}" if service_category else "CORE PLATFORM CAPABILITIES"
+    draw.text((card_x1 + 45, card_y1 + 40), card_header, font=get_font(18, bold=True), fill=ACCENT_DEEP_BLUE)
     font_sub = get_font(23, bold=False)
     sub_lines = wrap_text_to_lines(draw, subtitle, font_sub, max_width=940)
     for idx, sl in enumerate(sub_lines[:2]):
         draw.text((card_x1 + 45, card_y1 + 80 + idx * 36), sl, font=font_sub, fill=TEXT_LIGHT_SECONDARY)
 
-    # 3 Feature highlights inside bottom of front card
-    f_list = (features or ["Custom Microservice Development", "Autonomous Agent Workflows", "Data-Driven Enterprise Analytics"])[:3]
+    f_list = (features or ["Purpose-Built Solutions", "Automated Workflows", "Reliable Data Architecture"])[:3]
     for idx, f in enumerate(f_list):
         fx = card_x1 + 45 + idx * 330
         draw.rounded_rectangle([fx, card_y1 + 190, fx + 300, card_y1 + 350], radius=16, fill=(248, 250, 252, 255), outline=SLATE_BORDER, width=1)
@@ -1289,17 +1308,21 @@ def render_product_announcement_layout(
     title: str,
     subtitle: str,
     features: Optional[List[str]] = None,
+    tagline: Optional[str] = None,
+    service_category: Optional[str] = None,
+    **kwargs: Any,
 ) -> Image.Image:
-    """12. Radiant spotlight product release announcement."""
+    """12. Radiant spotlight solution showcase announcement."""
     img = create_radial_spotlight_canvas(CANVAS_SIZE, (4, 8, 24, 255), (0, 210, 255), (600, 100), radius=550)
     draw = ImageDraw.Draw(img)
 
     draw_jevyam_logo(draw, x=80, y=70, is_dark=True, img=img)
-    draw_tagline(draw, text="NEW RELEASE  ·  ANNOUNCING", x_right=1120, y=75, is_dark=True)
+    draw_tagline(draw, text=tagline or "NEW RELEASE  ·  ANNOUNCING", x_right=1120, y=75, is_dark=True)
 
     # Announcement Badge Pill
-    draw.rounded_rectangle([80, 175, 430, 220], radius=22, fill=(17, 28, 56, 230), outline=ACCENT_CYAN, width=2)
-    draw.text((105, 187), "★  OFFICIAL RELEASE ANNOUNCEMENT", font=get_font(14, bold=True), fill=ACCENT_CYAN)
+    pill_label = f"★  OFFICIAL {service_category.upper()[:26]} SHOWCASE" if service_category else "★  OFFICIAL AGENCY SHOWCASE"
+    draw.rounded_rectangle([80, 175, 520, 220], radius=22, fill=(17, 28, 56, 230), outline=ACCENT_CYAN, width=2)
+    draw.text((105, 187), pill_label, font=get_font(14, bold=True), fill=ACCENT_CYAN)
 
     # Headline
     font_hl = get_font(52, bold=True)
@@ -1319,17 +1342,17 @@ def render_product_announcement_layout(
 
     # Terminal Header bar
     draw.rounded_rectangle([80, showcase_y, 1120, showcase_y + 48], radius=18, fill=(20, 35, 70, 255))
-    # Red, yellow, green terminal dots
     for i, col in enumerate([(244, 63, 94), (234, 179, 8), (34, 197, 94)]):
         draw.ellipse([105 + i * 22, showcase_y + 18, 119 + i * 22, showcase_y + 32], fill=col)
-    draw.text((185, showcase_y + 16), "jevyam-agent // runtime v2.0-verified", font=get_font(13, bold=True), fill=TEXT_DARK_MUTED)
+    term_title = f"jevyam // {service_category.lower().replace(' ', '-')[:25]}" if service_category else "jevyam // solutions-suite"
+    draw.text((185, showcase_y + 16), term_title, font=get_font(13, bold=True), fill=TEXT_DARK_MUTED)
 
     # Showcase Features inside Terminal
-    feats = (features or ["Idempotent Task Queues with Zero Re-Delivery", "Native Supabase Storage & Postgres Verification", "Automated Telegram Interactive Founder Approval"])[:3]
+    feats = (features or ["Tailored Business Software Architecture", "Real-Time Centralized Data Synchronization", "Interactive Operations Dashboards"])[:3]
     for idx, f in enumerate(feats):
         fy = showcase_y + 75 + idx * 85
         draw.text((110, fy), f"$ engine --enable {f.lower().replace(' ', '-')[:30]}", font=get_font(18, bold=True), fill=ACCENT_CYAN)
-        draw.text((110, fy + 30), f"✓ Initialized successfully with sub-second failover", font=get_font(15, bold=False), fill=TEXT_DARK_SECONDARY)
+        draw.text((110, fy + 30), f"✓ Initialized successfully with high availability", font=get_font(15, bold=False), fill=TEXT_DARK_SECONDARY)
 
     return img
 
@@ -1352,16 +1375,19 @@ def render_branded_image(
     topic: Optional[str] = None,
     caption: Optional[str] = None,
     visual_concept: Optional[str] = None,
+    service_category: Optional[str] = None,
     key_points: Optional[List[str]] = None,
     stats: Optional[List[Tuple[str, str]]] = None,
     output_path: Optional[Union[str, Path]] = None,
     previous_layouts: Optional[List[str]] = None,
     revision: int = 1,
     post_id: Optional[str] = None,
+    **kwargs: Any,
 ) -> bytes:
     """Master high-level renderer returning 1200x1200 PNG bytes.
 
-    Zero-cost, Python-based, fully deterministic, supports 12 diverse layouts.
+    Zero-cost, Python-based, fully deterministic, supports 12 diverse layouts
+    with dynamic service-specific branding for Jevyam Technologies.
     """
     clean_title, clean_subtitle = extract_content_summary(
         title=title,
@@ -1372,6 +1398,19 @@ def render_branded_image(
     if subtitle:
         clean_subtitle = subtitle
 
+    # Resolve service category if not passed explicitly
+    s_cat = service_category or kwargs.get("service_pillar")
+    if not s_cat:
+        from agent.pillars import get_pillar_by_name
+        for cand in [visual_concept, topic, caption, title]:
+            if cand:
+                matched = get_pillar_by_name(cand)
+                if matched:
+                    s_cat = matched["name"]
+                    break
+
+    chosen_tagline = format_service_tagline(s_cat)
+
     chosen_layout = detect_optimal_layout(
         title=clean_title,
         caption=caption or clean_subtitle,
@@ -1380,35 +1419,42 @@ def render_branded_image(
         previous_layouts=previous_layouts,
         revision=revision,
         post_id=post_id,
+        service_category=s_cat,
     )
+
+    # Layout kwargs with service awareness
+    layout_kwargs = {
+        "tagline": chosen_tagline,
+        "service_category": s_cat,
+    }
 
     # Dispatch to specific layout function
     if chosen_layout == "dark_cyber_tech":
-        img = render_dark_cyber_tech_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_dark_cyber_tech_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "minimalist_editorial":
-        img = render_minimalist_editorial_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_minimalist_editorial_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "split_screen_comparison":
-        img = render_split_screen_comparison_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_split_screen_comparison_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "data_visualization":
-        img = render_data_visualization_layout(clean_title, clean_subtitle, stats=stats)
+        img = render_data_visualization_layout(clean_title, clean_subtitle, stats=stats, **layout_kwargs)
     elif chosen_layout == "isometric_infrastructure":
-        img = render_isometric_infrastructure_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_isometric_infrastructure_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "timeline_roadmap":
-        img = render_timeline_roadmap_layout(clean_title, clean_subtitle, steps=key_points)
+        img = render_timeline_roadmap_layout(clean_title, clean_subtitle, steps=key_points, **layout_kwargs)
     elif chosen_layout == "process_flow":
-        img = render_process_flow_layout(clean_title, clean_subtitle, steps=key_points)
+        img = render_process_flow_layout(clean_title, clean_subtitle, steps=key_points, **layout_kwargs)
     elif chosen_layout == "magazine_cover":
-        img = render_magazine_cover_layout(clean_title, clean_subtitle, features=key_points)
+        img = render_magazine_cover_layout(clean_title, clean_subtitle, features=key_points, **layout_kwargs)
     elif chosen_layout == "geometric_abstract":
-        img = render_geometric_abstract_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_geometric_abstract_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "quote_insight":
-        img = render_quote_insight_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_quote_insight_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
     elif chosen_layout == "layered_cards":
-        img = render_layered_cards_layout(clean_title, clean_subtitle, features=key_points)
+        img = render_layered_cards_layout(clean_title, clean_subtitle, features=key_points, **layout_kwargs)
     elif chosen_layout == "product_announcement":
-        img = render_product_announcement_layout(clean_title, clean_subtitle, features=key_points)
+        img = render_product_announcement_layout(clean_title, clean_subtitle, features=key_points, **layout_kwargs)
     else:
-        img = render_dark_cyber_tech_layout(clean_title, clean_subtitle, key_points=key_points)
+        img = render_dark_cyber_tech_layout(clean_title, clean_subtitle, key_points=key_points, **layout_kwargs)
 
     rgb_img = img.convert("RGB")
     buf = BytesIO()

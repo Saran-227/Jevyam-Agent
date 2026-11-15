@@ -35,7 +35,7 @@ class ContentIdea(BaseModel):
         description="The combined service category and format (e.g. 'Inventory Management Systems | Problem → Solution')",
     )
     service_category: Optional[str] = Field(
-        default="Custom Software Development",
+        default=None,
         description="One of the 8 official service categories",
     )
     service_name: Optional[str] = Field(
@@ -86,7 +86,7 @@ class ContentIdea(BaseModel):
                 self.service_url = get_service_url(cat)
 
         self.content_format = normalize_content_format(self.content_format)
-        if " | " not in self.content_type:
+        if not self.content_type:
             self.content_type = f"{self.service_category} | {self.content_format}"
         return self
 

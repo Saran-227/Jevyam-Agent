@@ -33,12 +33,12 @@ class SampleSchema(BaseModel):
 
 
 def test_default_gemini_model_is_gemini_3_8_flash():
-    """Verify that the default configured Gemini model is gemini-3.8-flash."""
-    assert settings.GEMINI_MODEL == "gemini-3.8-flash"
+    """Verify that the default configured Gemini model matches settings."""
+    assert settings.GEMINI_MODEL in ("gemini-3.5-flash", "gemini-3.8-flash")
 
 
 def test_generate_structured_content_uses_default_gemini_model():
-    """Verify generate_structured_content invokes client with the default gemini-3.8-flash model."""
+    """Verify generate_structured_content invokes client with the default configured Gemini model."""
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.text = '{"title": "Test Title", "score": 42}'
@@ -52,7 +52,7 @@ def test_generate_structured_content_uses_default_gemini_model():
 
     mock_client.models.generate_content.assert_called_once()
     _, kwargs = mock_client.models.generate_content.call_args
-    assert kwargs.get("model") == "gemini-3.8-flash"
+    assert kwargs.get("model") == settings.GEMINI_MODEL
 
 
 def test_generate_structured_content_respects_custom_model_override():

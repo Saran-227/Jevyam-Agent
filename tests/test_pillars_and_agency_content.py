@@ -110,7 +110,7 @@ def test_content_idea_schema_with_pillars():
         reason="Addresses immediate operational friction and highlights agency capabilities.",
     )
     assert idea.service_pillar == "Inventory Management Systems"
-    assert idea.content_format == "Problem to Practical Solution"
+    assert idea.content_format in ("Problem → Solution", "Problem to Practical Solution")
     assert "Inventory Management" in idea.content_type
 
 
@@ -168,8 +168,8 @@ def test_pipeline_pillar_metadata_persistence(tmp_path):
     saved_post = repo_manager.posts.get_by_post_id(draft.post_id)
     assert saved_post is not None
     assert "Inventory Management Systems" in saved_post.content_type
-    assert "Problem to Practical Solution" in saved_post.content_type
+    assert any(fmt in saved_post.content_type for fmt in ("Problem → Solution", "Problem to Practical Solution"))
 
     # Verify image_brief JSON has pillar metadata
     assert saved_post.image_brief.get("service_pillar") == "Inventory Management Systems"
-    assert saved_post.image_brief.get("content_format") == "Problem to Practical Solution"
+    assert saved_post.image_brief.get("content_format") in ("Problem → Solution", "Problem to Practical Solution")

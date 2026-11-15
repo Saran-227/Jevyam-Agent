@@ -35,12 +35,54 @@ class TelegramService:
         self,
         approval_service: Optional[ApprovalService] = None,
         provider: Optional[BaseTelegramProvider] = None,
+        founder_chat_id: Optional[str] = None,
     ):
         self.approval_service = approval_service or ApprovalService()
         self.provider = provider or get_telegram_provider()
+        self._founder_chat_id = str(founder_chat_id).strip() if founder_chat_id is not None else None
         self._processed_callback_ids: Set[str] = set()
         self._in_flight_tokens: Set[str] = set()
         self._lock = threading.Lock()
+
+    @property
+    def founder_chat_id(self) -> str:
+        """Resolve current configured founder Chat ID."""
+        if self._founder_chat_id is not None:
+            return self._founder_chat_id
+        provider_id = getattr(self.provider, "founder_chat_id", None)
+        return str(provider_id or settings.TELEGRAM_FOUNDER_CHAT_ID or "").strip()
+
+    @founder_chat_id.setter
+    def founder_chat_id(self, val: Optional[str]) -> None:
+        self._founder_chat_id = str(val).strip() if val is not None else None
+
+    def is_authorized_user(
+        self,
+        chat_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
+    ) -> bool:
+        """Validate whether the incoming interaction originates strictly from the authorized founder.
+
+        Both chat_id and sender_id are validated against the configured founder Chat ID.
+        In Telegram direct chats with bots, chat.id and from.id both match the user's ID.
+        If an unauthorized user in a group or someone who obtained an approval message attempts to click,
+        the request is strictly rejected.
+        """
+        expected = self.founder_chat_id
+        if not expected:
+            return True  # If unconfigured in local dev/mock test without restrictions
+
+        clean_chat = str(chat_id or "").strip()
+        clean_sender = str(sender_id or "").strip()
+
+        # When both chat_id and sender_id are present, both must match the authorized founder
+        if clean_chat and clean_sender:
+            return clean_chat == expected and clean_sender == expected
+        if clean_sender:
+            return clean_sender == expected
+        if clean_chat:
+            return clean_chat == expected
+        return False
 
     def send_post_approval_notification(
         self,
@@ -83,6 +125,8 @@ class TelegramService:
             approval_url = f"{base_url}/approve/{approval_token}"
             expires_at = str(active_approval.expires_at) if active_approval.expires_at else None
 
+        target_recipient = str(chat_id or self.founder_chat_id or settings.TELEGRAM_FOUNDER_CHAT_ID).strip()
+
         # Build payload
         payload = TelegramApprovalMessagePayload(
             post_id=post.post_id,
@@ -95,10 +139,10 @@ class TelegramService:
             approval_url=approval_url,
             image_url=post.image_url,
             expires_at=expires_at,
-            chat_id=chat_id or settings.TELEGRAM_FOUNDER_CHAT_ID,
+            chat_id=target_recipient,
         )
 
-        return self.provider.send_approval_message(payload, chat_id=chat_id)
+        return self.provider.send_approval_message(payload, chat_id=target_recipient)
 
     def handle_webhook_callback(
         self,
@@ -140,6 +184,39 @@ class TelegramService:
                 "message": f"Callback ID '{event.callback_query_id}' already processed.",
             }
 
+        # 3b. Handle Informational Commands (/start, /chatid, /id)
+        if event.text_body:
+            cmd = event.text_body.strip().lower()
+            if cmd in ("/start", "/id", "/chatid", "start", "id", "chatid"):
+                is_auth = self.is_authorized_user(chat_id=event.chat_id, sender_id=event.sender_id)
+                status_badge = "Authorized Founder ✅" if is_auth else "Unregistered User ⚠️"
+                info_msg = (
+                    f"👋 <b>Jevyam Technologies AI Marketing Bot</b>\n\n"
+                    f"🆔 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                    f"👤 <b>Sender ID:</b> <code>{event.sender_id}</code>\n"
+                    f"📋 <b>Status:</b> {status_badge}\n\n"
+                )
+                if is_auth:
+                    info_msg += (
+                        "You are configured as the authorized founder. You will receive daily post previews, "
+                        "branded images, approval buttons, and publishing notifications here."
+                    )
+                else:
+                    info_msg += (
+                        "This chat is not registered as the authorized founder. "
+                        "To authorize, update <code>TELEGRAM_FOUNDER_CHAT_ID</code> in the agent configuration."
+                    )
+                if event.chat_id:
+                    self.provider.send_text_message(chat_id=event.chat_id, text=info_msg)
+                return {
+                    "status": "info",
+                    "code": "COMMAND_HANDLED",
+                    "chat_id": event.chat_id,
+                    "sender_id": event.sender_id,
+                    "is_authorized": is_auth,
+                    "message": f"Handled {cmd} command.",
+                }
+
         # 4. Extract action and token
         action: Optional[str] = None
         token: Optional[str] = None
@@ -166,7 +243,28 @@ class TelegramService:
                 "message": "Missing actionable command or approval token in callback.",
             }
 
-        target_chat = event.chat_id or settings.TELEGRAM_FOUNDER_CHAT_ID
+        # 4b. Strict Founder Authorization Check
+        if not self.is_authorized_user(chat_id=event.chat_id, sender_id=event.sender_id):
+            logger.warning(
+                f"[UNAUTHORIZED] Telegram callback rejected: chat_id='{event.chat_id}', "
+                f"sender_id='{event.sender_id}'. Expected founder_chat_id='{self.founder_chat_id}'."
+            )
+            if event.chat_id:
+                try:
+                    self.provider.send_text_message(
+                        chat_id=event.chat_id,
+                        text="⛔ <b>Access Denied:</b> You are not authorized to approve or regenerate posts for Jevyam Technologies.",
+                    )
+                except Exception as notify_err:
+                    logger.warning(f"Failed to send access-denied message to chat '{event.chat_id}': {notify_err}")
+
+            return {
+                "status": "unauthorized",
+                "code": "UNAUTHORIZED_USER",
+                "message": "Only the authorized founder may approve or reject posts.",
+            }
+
+        target_chat = self.founder_chat_id or event.chat_id or settings.TELEGRAM_FOUNDER_CHAT_ID
 
         # 5. Route to authoritative ApprovalService
         if action in ("approve", "yes"):

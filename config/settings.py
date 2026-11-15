@@ -62,6 +62,13 @@ class Settings:
     WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")
     WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0")
 
+    # Daily Scheduler Configuration (Phase 2)
+    TIMEZONE = os.getenv("TIMEZONE", "Asia/Kolkata")
+    SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "9"))
+    SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
+    ENABLE_SCHEDULER = os.getenv("ENABLE_SCHEDULER", "true").lower() in ("true", "1", "yes")
+    SCHEDULER_RUNS_FILE = os.getenv("SCHEDULER_RUNS_FILE", "data/scheduler/runs.json")
+
 
 
 settings = Settings()

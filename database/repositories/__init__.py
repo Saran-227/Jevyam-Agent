@@ -32,6 +32,11 @@ from database.repositories.revisions import (
     InMemoryRevisionRepository,
     SupabaseRevisionRepository,
 )
+from database.repositories.scheduler_runs import (
+    BaseSchedulerRunRepository,
+    InMemorySchedulerRunRepository,
+    SupabaseSchedulerRunRepository,
+)
 from database.supabase_client import get_supabase_client
 
 
@@ -45,6 +50,7 @@ class RepositoryManager:
         approvals: BaseApprovalRepository,
         companies: BaseCompanyRepository,
         publications: Optional[BasePublicationRepository] = None,
+        scheduler_runs: Optional[BaseSchedulerRunRepository] = None,
         is_in_memory: bool = False,
     ):
         self.posts = posts
@@ -52,6 +58,7 @@ class RepositoryManager:
         self.approvals = approvals
         self.companies = companies
         self.publications = publications or InMemoryPublicationRepository()
+        self.scheduler_runs = scheduler_runs or InMemorySchedulerRunRepository()
         self.is_in_memory = is_in_memory
 
 
@@ -63,6 +70,7 @@ def create_in_memory_repository_manager() -> RepositoryManager:
         approvals=InMemoryApprovalRepository(),
         companies=InMemoryCompanyRepository(),
         publications=InMemoryPublicationRepository(),
+        scheduler_runs=InMemorySchedulerRunRepository(),
         is_in_memory=True,
     )
 
@@ -75,6 +83,7 @@ def create_supabase_repository_manager(client: Client) -> RepositoryManager:
         approvals=SupabaseApprovalRepository(client=client),
         companies=SupabaseCompanyRepository(client=client),
         publications=SupabasePublicationRepository(client=client),
+        scheduler_runs=SupabaseSchedulerRunRepository(client=client),
         is_in_memory=False,
     )
 
@@ -116,6 +125,17 @@ def get_repository_manager(
         supabase_client = get_supabase_client()
         return create_supabase_repository_manager(supabase_client)
 
+    # Production check: if DRY_RUN is False, strictly require Supabase and forbid silent fallback
+    import os
+    if getattr(settings, "DRY_RUN", False) is False and not os.getenv("PYTEST_CURRENT_TEST"):
+        if not has_creds:
+            raise MissingSupabaseCredentialsError(
+                "Production mode (DRY_RUN=false) requires valid SUPABASE_URL and SUPABASE_KEY. "
+                "Silent fallback to local JSON or in-memory storage is forbidden in production."
+            )
+        supabase_client = get_supabase_client()
+        return create_supabase_repository_manager(supabase_client)
+
     # Default auto-detect
     if has_creds:
         try:
@@ -139,6 +159,7 @@ __all__ = [
     "BaseRevisionRepository",
     "BaseApprovalRepository",
     "BasePublicationRepository",
+    "BaseSchedulerRunRepository",
     "InMemoryCompanyRepository",
     "SupabaseCompanyRepository",
     "InMemoryPostRepository",
@@ -149,6 +170,8 @@ __all__ = [
     "SupabaseApprovalRepository",
     "InMemoryPublicationRepository",
     "SupabasePublicationRepository",
+    "InMemorySchedulerRunRepository",
+    "SupabaseSchedulerRunRepository",
     "RepositoryManager",
     "create_in_memory_repository_manager",
     "create_supabase_repository_manager",

@@ -27,6 +27,11 @@ from integrations.telegram.models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def configure_test_founder_chat_id(monkeypatch):
+    monkeypatch.setattr(settings, "TELEGRAM_FOUNDER_CHAT_ID", "123456")
+
+
 @pytest.fixture
 def mock_repo_manager():
     return create_in_memory_repository_manager()

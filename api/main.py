@@ -19,7 +19,8 @@ from config.settings import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle manager for startup and shutdown logging."""
+    """Lifecycle manager for startup, scheduler initialization, and shutdown."""
+    import os
     host = settings.API_HOST
     port = settings.API_PORT
     base_url = settings.APP_BASE_URL.rstrip("/")
@@ -33,7 +34,18 @@ async def lifespan(app: FastAPI):
     print(f"LinkedIn OAuth Authorize: http://{host}:{port}/auth/linkedin/authorize")
     print(f"LinkedIn OAuth Callback: http://{host}:{port}/auth/linkedin/callback")
     print("=" * 60)
+
+    # Initialize Daily 9:00 AM IST Scheduler (Phase 2)
+    scheduler = None
+    if getattr(settings, "ENABLE_SCHEDULER", True) and not os.getenv("PYTEST_CURRENT_TEST"):
+        from agent.scheduler import get_daily_scheduler
+        scheduler = get_daily_scheduler()
+        scheduler.start()
+
     yield
+
+    if scheduler:
+        scheduler.stop()
 
 
 app = FastAPI(

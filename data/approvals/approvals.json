@@ -310,5 +310,17 @@
     "rejected_at": null,
     "rejection_reason": null,
     "created_at": "2026-11-05T19:09:18.284837"
+  },
+  "appr_zE3uH-CDrz5ZG2HOtzkqYzQOR8-0BhZT8-Hw8QDMnlM": {
+    "id": "ecbb9990-52c0-4289-b2bf-9b9bfbb8b651",
+    "post_id": "JVY-20261112-001",
+    "revision_number": 1,
+    "status": "PENDING",
+    "approval_token": "appr_zE3uH-CDrz5ZG2HOtzkqYzQOR8-0BhZT8-Hw8QDMnlM",
+    "expires_at": "2026-11-13T22:58:59.546634",
+    "approved_at": null,
+    "rejected_at": null,
+    "rejection_reason": null,
+    "created_at": "2026-11-12T22:58:59.546634"
   }
 }

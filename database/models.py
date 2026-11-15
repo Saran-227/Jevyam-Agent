@@ -192,3 +192,19 @@ class Publication(BaseModel):
     published_at: Optional[Union[datetime, str]] = None
     created_at: Optional[Union[datetime, str]] = None
 
+
+class SchedulerRunRecord(BaseModel):
+    """Persistent audit record of a scheduled daily agent run."""
+
+    execution_key: str = Field(..., description="Unique daily execution key, e.g. DAILY-RUN-20261112")
+    date: str = Field(..., description="Target Indian calendar date (YYYY-MM-DD)")
+    status: str = Field(..., description="Run status: RUNNING, SUCCESS, SKIPPED, or FAILED")
+    post_id: Optional[str] = Field(default=None, description="Generated or existing Post ID")
+    revision: Optional[int] = Field(default=None, description="Draft revision number")
+    triggered_at: str = Field(..., description="ISO timestamp when execution started")
+    completed_at: Optional[str] = Field(default=None, description="ISO timestamp when execution completed")
+    is_missed_run_recovery: bool = Field(default=False, description="Whether this was a missed-run recovery run")
+    retry_count: int = Field(default=0, description="Number of retries attempted")
+    error: Optional[str] = Field(default=None, description="Safe error message if failed")
+
+
