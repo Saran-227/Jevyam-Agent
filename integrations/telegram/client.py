@@ -36,6 +36,7 @@ class TelegramApiProvider(BaseTelegramProvider):
         self,
         bot_token: Optional[str] = None,
         founder_chat_id: Optional[str] = None,
+        admin_chat_id: Optional[str] = None,
         webhook_secret: Optional[str] = None,
         base_url: Optional[str] = None,
         http_client: Optional[httpx.Client] = None,
@@ -43,6 +44,7 @@ class TelegramApiProvider(BaseTelegramProvider):
     ):
         self.bot_token = (bot_token if bot_token is not None else (settings.TELEGRAM_BOT_TOKEN or "")).strip()
         self.founder_chat_id = str(founder_chat_id if founder_chat_id is not None else (settings.TELEGRAM_FOUNDER_CHAT_ID or "")).strip()
+        self.admin_chat_id = str(admin_chat_id if admin_chat_id is not None else (settings.TELEGRAM_ADMIN_CHAT_ID or "")).strip()
         self.webhook_secret = (webhook_secret if webhook_secret is not None else (settings.TELEGRAM_WEBHOOK_SECRET or "")).strip()
 
         self.base_url = (base_url or settings.TELEGRAM_API_BASE_URL or "https://api.telegram.org").rstrip("/")
@@ -405,6 +407,174 @@ class TelegramApiProvider(BaseTelegramProvider):
                     chat_id=target_chat,
                     provider="telegram",
                     error=safe_error,
+                )
+
+    def send_post_preview(
+        self,
+        payload: TelegramApprovalMessagePayload,
+        chat_id: Optional[str] = None,
+        is_admin_preview: bool = True,
+    ) -> TelegramMessageResponse:
+        """Send formatted post preview and companion image without actionable approval buttons."""
+        target_chat = str(chat_id or payload.chat_id or self.admin_chat_id).strip()
+        if not target_chat:
+            return TelegramMessageResponse(
+                success=False,
+                chat_id=target_chat,
+                provider="telegram",
+                error="Missing destination chat ID for post preview.",
+            )
+
+        header = "<b>Jevyam Technologies — Generated Post Preview (Admin Copy)</b>" if is_admin_preview else "<b>Jevyam Technologies — LinkedIn Post Preview</b>"
+        lines = [
+            header,
+            f"<b>Revision:</b> #{payload.revision_number}",
+            f"<b>Post ID:</b> <code>{html.escape(payload.post_id)}</code>",
+            "",
+            "<b>Caption:</b>",
+            f"{html.escape(payload.caption)}",
+        ]
+
+        if payload.hashtags:
+            lines.append("")
+            lines.append(f"<b>Hashtags:</b> {' '.join(html.escape(tag) for tag in payload.hashtags)}")
+
+        if payload.visual_concept:
+            lines.append("")
+            lines.append(f"<b>Visual Concept:</b> {html.escape(payload.visual_concept)}")
+
+        if is_admin_preview:
+            lines.append("")
+            lines.append("<i>ℹ️ Admin Informational Copy — Actionable approval buttons sent exclusively to Founder.</i>")
+
+        message_text = "\n".join(lines)
+        has_valid_image = is_valid_image_url(payload.image_url)
+
+        # Detect local image file candidate
+        local_img_candidate = None
+        for candidate_path in [
+            Path(f"data/posts/{payload.post_id}.png"),
+            Path(f"data/images/{payload.post_id}.png"),
+            Path(payload.image_url) if payload.image_url and not payload.image_url.startswith("http") else None,
+        ]:
+            if candidate_path and candidate_path.exists():
+                local_img_candidate = candidate_path
+                break
+
+        # Case 1: Photo with caption <= 1024 chars (NO inline buttons)
+        if has_valid_image and len(message_text) <= 1024:
+            photo_payload: Dict[str, Any] = {
+                "chat_id": target_chat,
+                "photo": payload.image_url,
+                "caption": message_text,
+                "parse_mode": "HTML",
+            }
+            try:
+                res = self._post_with_retry("sendPhoto", photo_payload)
+                msg_id = str(res.get("result", {}).get("message_id", ""))
+                return TelegramMessageResponse(
+                    success=True,
+                    message_id=msg_id,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    raw_response=res,
+                )
+            except Exception as e:
+                if local_img_candidate:
+                    try:
+                        multipart_data = {
+                            "chat_id": target_chat,
+                            "caption": message_text,
+                            "parse_mode": "HTML",
+                        }
+                        files = {"photo": (local_img_candidate.name, local_img_candidate.read_bytes(), "image/png")}
+                        res = self._post_with_retry("sendPhoto", data_payload=multipart_data, files=files)
+                        msg_id = str(res.get("result", {}).get("message_id", ""))
+                        return TelegramMessageResponse(
+                            success=True,
+                            message_id=msg_id,
+                            chat_id=target_chat,
+                            provider="telegram",
+                            raw_response=res,
+                        )
+                    except Exception as me:
+                        logger.error(f"[ERROR] Direct multipart image delivery failed for preview: {me}")
+                safe_err = mask_sensitive_url(str(e))
+                logger.error(f"[ERROR] Failed to deliver photo preview: {safe_err}")
+                return TelegramMessageResponse(
+                    success=False,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    error=f"Failed to deliver photo preview: {safe_err}",
+                )
+
+        # Case 2: Photo + separate long caption message (NO buttons)
+        elif has_valid_image:
+            photo_caption = (
+                f"<b>Jevyam Technologies — Visual Preview (Admin Copy)</b>\n"
+                f"<b>Revision:</b> #{payload.revision_number}\n"
+                f"<b>Post ID:</b> <code>{html.escape(payload.post_id)}</code>\n\n"
+                f"<i>(Full post caption in message below 👇)</i>"
+            )
+            try:
+                self._post_with_retry("sendPhoto", {
+                    "chat_id": target_chat,
+                    "photo": payload.image_url,
+                    "caption": photo_caption,
+                    "parse_mode": "HTML",
+                })
+            except Exception as pe:
+                safe_err = mask_sensitive_url(str(pe))
+                logger.warning(f"[WARN] Failed to deliver photo preview: {safe_err}")
+
+            text_payload = {
+                "chat_id": target_chat,
+                "text": message_text,
+                "parse_mode": "HTML",
+            }
+            try:
+                res = self._post_with_retry("sendMessage", text_payload)
+                msg_id = str(res.get("result", {}).get("message_id", ""))
+                return TelegramMessageResponse(
+                    success=True,
+                    message_id=msg_id,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    raw_response=res,
+                )
+            except Exception as e:
+                safe_err = mask_sensitive_url(str(e))
+                return TelegramMessageResponse(
+                    success=False,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    error=safe_err,
+                )
+
+        # Case 3: Plain text message (NO buttons)
+        else:
+            text_payload = {
+                "chat_id": target_chat,
+                "text": message_text,
+                "parse_mode": "HTML",
+            }
+            try:
+                res = self._post_with_retry("sendMessage", text_payload)
+                msg_id = str(res.get("result", {}).get("message_id", ""))
+                return TelegramMessageResponse(
+                    success=True,
+                    message_id=msg_id,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    raw_response=res,
+                )
+            except Exception as e:
+                safe_err = mask_sensitive_url(str(e))
+                return TelegramMessageResponse(
+                    success=False,
+                    chat_id=target_chat,
+                    provider="telegram",
+                    error=safe_err,
                 )
 
     def answer_callback_query(

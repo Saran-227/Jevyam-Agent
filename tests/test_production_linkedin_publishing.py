@@ -15,6 +15,7 @@ Verifies:
 
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import httpx
@@ -173,12 +174,62 @@ def phase3_env(tmp_path, founder_chat_id, fake_token_store):
 
 
 def test_production_configuration_settings():
-    """Verify that production environment variables are properly configured."""
-    assert settings.DRY_RUN is False
-    assert settings.LINKEDIN_MOCK_PUBLISHING is False
-    assert settings.AUTO_PUBLISH_ON_APPROVAL is True
-    assert settings.LINKEDIN_ORGANIZATION_ID == "108376955"
-    assert settings.LINKEDIN_API_VERSION == "202610"
+    """Verify that production environment variables are properly injected and validated.
+
+    Explicitly injects production values rather than relying on global defaults:
+    - DRY_RUN=false
+    - LINKEDIN_MOCK_PUBLISHING=false
+    - AUTO_PUBLISH_ON_APPROVAL=true
+    - LINKEDIN_ORGANIZATION_ID=108376955
+    - LINKEDIN_API_VERSION=202610
+    - TELEGRAM_FOUNDER_CHAT_ID=8164283098
+    - TELEGRAM_ADMIN_CHAT_ID=1293148688
+    """
+    prod_env = {
+        "DRY_RUN": "false",
+        "LINKEDIN_MOCK_PUBLISHING": "false",
+        "AUTO_PUBLISH_ON_APPROVAL": "true",
+        "LINKEDIN_ORGANIZATION_ID": "108376955",
+        "LINKEDIN_API_VERSION": "202610",
+        "TELEGRAM_FOUNDER_CHAT_ID": "8164283098",
+        "TELEGRAM_ADMIN_CHAT_ID": "1293148688",
+    }
+    with patch("dotenv.load_dotenv"), patch.dict(os.environ, prod_env, clear=True):
+        import importlib
+        import config.settings
+        importlib.reload(config.settings)
+        s = config.settings.settings
+
+        assert s.DRY_RUN is False
+        assert s.LINKEDIN_MOCK_PUBLISHING is False
+        assert s.AUTO_PUBLISH_ON_APPROVAL is True
+        assert s.LINKEDIN_ORGANIZATION_ID == "108376955"
+        assert s.LINKEDIN_API_VERSION == "202610"
+        assert s.TELEGRAM_FOUNDER_CHAT_ID == "8164283098"
+        assert s.TELEGRAM_ADMIN_CHAT_ID == "1293148688"
+
+    # Restore module state
+    import importlib
+    import config.settings
+    importlib.reload(config.settings)
+
+
+def test_safe_development_defaults():
+    """Verify that default settings without production injection maintain safe development defaults (mock & dry-run)."""
+    with patch("dotenv.load_dotenv"), patch.dict(os.environ, {}, clear=True):
+        import importlib
+        import config.settings
+        importlib.reload(config.settings)
+        s = config.settings.settings
+
+        assert s.DRY_RUN is True
+        assert s.LINKEDIN_MOCK_PUBLISHING is True
+        assert s.LINKEDIN_ORGANIZATION_ID == "108376955"
+
+    # Restore module state
+    import importlib
+    import config.settings
+    importlib.reload(config.settings)
 
 
 def test_real_publisher_selection_when_mock_mode_disabled(phase3_env):
@@ -384,6 +435,33 @@ def test_unauthorized_approval_never_publishes(phase3_env):
     assert res["status"] == "unauthorized"
     assert res["code"] == "UNAUTHORIZED_USER"
     mock_http.post.assert_not_called()
+
+    # Post remains PENDING_APPROVAL
+    assert repos.posts.get_by_post_id("JVY-PROD-001").status == PostStatus.PENDING_APPROVAL
+
+
+def test_admin_approval_attempt_never_publishes(phase3_env):
+    """Admin role (1293148688) clicking approve is rejected as UNAUTHORIZED_USER and LinkedIn is never called."""
+    tg_service = phase3_env["tg_service"]
+    mock_http = phase3_env["mock_http"]
+    repos = phase3_env["repos"]
+    token = phase3_env["approval"].approval_token
+    admin_id = int(settings.TELEGRAM_ADMIN_CHAT_ID or "1293148688")
+
+    res = tg_service.handle_webhook_callback({
+        "update_id": 40004,
+        "callback_query": {
+            "id": "cb_admin_attempt_prod",
+            "from": {"id": admin_id},
+            "message": {"message_id": 83, "chat": {"id": admin_id}},
+            "data": f"approve:{token}",
+        },
+    })
+
+    assert res["status"] == "unauthorized"
+    assert res["code"] == "UNAUTHORIZED_USER"
+    mock_http.post.assert_not_called()
+    mock_http.put.assert_not_called()
 
     # Post remains PENDING_APPROVAL
     assert repos.posts.get_by_post_id("JVY-PROD-001").status == PostStatus.PENDING_APPROVAL

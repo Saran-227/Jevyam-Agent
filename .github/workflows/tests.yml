@@ -28,5 +28,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run pytest
+        env:
+          DRY_RUN: 'false'
+          LINKEDIN_MOCK_PUBLISHING: 'false'
+          AUTO_PUBLISH_ON_APPROVAL: 'true'
+          LINKEDIN_ORGANIZATION_ID: '108376955'
+          LINKEDIN_API_VERSION: '202610'
+          TELEGRAM_FOUNDER_CHAT_ID: '8164283098'
+          TELEGRAM_ADMIN_CHAT_ID: '1293148688'
         run: |
           python -m pytest -v

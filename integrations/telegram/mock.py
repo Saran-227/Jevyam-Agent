@@ -17,11 +17,13 @@ class MockTelegramProvider(BaseTelegramProvider):
     def __init__(
         self,
         founder_chat_id: Optional[str] = None,
+        admin_chat_id: Optional[str] = None,
         webhook_secret: Optional[str] = None,
         should_fail: bool = False,
         failure_error: str = "Mock simulated Telegram dispatch failure",
     ):
-        self.founder_chat_id = str(founder_chat_id if founder_chat_id is not None else (settings.TELEGRAM_FOUNDER_CHAT_ID or "123456789")).strip()
+        self.founder_chat_id = str(founder_chat_id if founder_chat_id is not None else (settings.TELEGRAM_FOUNDER_CHAT_ID or "8164283098")).strip()
+        self.admin_chat_id = str(admin_chat_id or "").strip()
         self.webhook_secret = (webhook_secret or "").strip()
 
         self.should_fail = should_fail
@@ -117,6 +119,53 @@ class MockTelegramProvider(BaseTelegramProvider):
             "chat_id": target_chat,
             "text": text,
             "buttons": buttons,
+            "image_url": payload.image_url,
+            "is_linked": is_linked,
+            "payload": payload.model_dump(),
+        }
+        self.sent_messages.append(record)
+
+        return TelegramMessageResponse(
+            success=True,
+            message_id=msg_id,
+            chat_id=target_chat,
+            provider="mock",
+            raw_response=record,
+        )
+
+    def send_post_preview(
+        self,
+        payload: TelegramApprovalMessagePayload,
+        chat_id: Optional[str] = None,
+        is_admin_preview: bool = True,
+    ) -> TelegramMessageResponse:
+        """Record mock preview dispatch without actionable buttons."""
+        target_chat = str(chat_id or payload.chat_id or self.admin_chat_id).strip()
+        if self.should_fail:
+            return TelegramMessageResponse(
+                success=False,
+                chat_id=target_chat,
+                provider="mock",
+                error=self.failure_error,
+            )
+
+        self._msg_counter += 1
+        msg_id = f"mock_tg_msg_{self._msg_counter}"
+
+        text = TelegramApiProvider.format_approval_text(None, payload)  # type: ignore
+        if is_admin_preview:
+            text = f"<b>Jevyam Technologies — Generated Post Preview (Admin Copy)</b>\n\n{text}\n\n<i>ℹ️ Admin Informational Copy — Actionable approval buttons sent exclusively to Founder.</i>"
+
+        is_linked = bool(payload.image_url and len(text) > 1024)
+        media_type = "linked_photo" if is_linked else ("photo" if payload.image_url else "text")
+
+        record = {
+            "id": msg_id,
+            "type": "admin_preview" if is_admin_preview else "preview",
+            "media_type": media_type,
+            "chat_id": target_chat,
+            "text": text,
+            "buttons": None,  # EXPLICITLY NO BUTTONS
             "image_url": payload.image_url,
             "is_linked": is_linked,
             "payload": payload.model_dump(),

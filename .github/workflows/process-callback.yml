@@ -79,9 +79,10 @@ jobs:
           # AI Content Generation (Gemini)
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-          # Telegram Delivery & Strict Founder Authorization
+          # Telegram Delivery & Strict Founder Authorization & Admin Notifications
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_FOUNDER_CHAT_ID: ${{ secrets.TELEGRAM_FOUNDER_CHAT_ID || '8164283098' }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || '1293148688' }}
           TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
 
           # LinkedIn Production Configuration

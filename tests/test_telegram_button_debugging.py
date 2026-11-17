@@ -30,13 +30,14 @@ from database.repositories import create_in_memory_repository_manager
 from integrations.telegram.mock import MockTelegramProvider
 from integrations.telegram.models import TelegramWebhookEvent
 
-FOUNDER_ID = int(settings.TELEGRAM_FOUNDER_CHAT_ID or 0)
+FOUNDER_ID = int(settings.TELEGRAM_FOUNDER_CHAT_ID or 8164283098)
+ADMIN_ID = int(settings.TELEGRAM_ADMIN_CHAT_ID or 1293148688)
 
 
 @pytest.fixture
 def test_setup():
     repos = create_in_memory_repository_manager()
-    mock_tg = MockTelegramProvider()
+    mock_tg = MockTelegramProvider(founder_chat_id=str(FOUNDER_ID), admin_chat_id=str(ADMIN_ID))
     pub_service = PublishingService(repo_manager=repos, mock_mode=True)
     approval_service = ApprovalService(
         repo_manager=repos,
@@ -45,6 +46,8 @@ def test_setup():
     tg_service = TelegramService(
         approval_service=approval_service,
         provider=mock_tg,
+        founder_chat_id=str(FOUNDER_ID),
+        admin_chat_id=str(ADMIN_ID),
     )
 
     # Seed initial post JVY-TEST-DEBUG-001
@@ -136,10 +139,10 @@ def test_telegram_yes_callback_flow(test_setup):
     assert any(c["callback_query_id"] == "cb_query_yes_123" for c in mock_tg.answered_callbacks)
 
     # 3. Confirmation message sent back to Telegram
-    assert len(mock_tg.sent_messages) >= 1
-    last_msg = mock_tg.sent_messages[-1]
-    assert "Approved!" in last_msg["text"]
-    assert "JVY-TEST-DEBUG-001" in last_msg["text"]
+    founder_msgs = [m for m in mock_tg.sent_messages if str(m.get("chat_id")) == str(FOUNDER_ID)]
+    assert len(founder_msgs) >= 1
+    assert "Approved!" in founder_msgs[-1]["text"]
+    assert "JVY-TEST-DEBUG-001" in founder_msgs[-1]["text"]
 
     # 4. Database state updated
     post_in_db = repos.posts.get_by_post_id("JVY-TEST-DEBUG-001")
@@ -332,3 +335,84 @@ def test_telegram_webhook_http_endpoint(test_setup):
         assert data["post_id"] == "JVY-TEST-DEBUG-001"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_telegram_unauthorized_user_callback_rejected(test_setup):
+    """Callback from unknown/unauthorized user must be rejected and not alter state."""
+    tg_service = test_setup["tg_service"]
+    mock_tg = test_setup["mock_tg"]
+    repos = test_setup["repos"]
+    token = test_setup["approval"].approval_token
+
+    payload = {
+        "update_id": 10008,
+        "callback_query": {
+            "id": "cb_query_unauth",
+            "from": {"id": 999888111},
+            "message": {"message_id": 19, "chat": {"id": 999888111}},
+            "data": f"approve:{token}",
+        },
+    }
+
+    res = tg_service.handle_webhook_callback(payload)
+    assert res["status"] == "unauthorized"
+    assert res["code"] == "UNAUTHORIZED_USER"
+
+    # Post must remain pending
+    post = repos.posts.get_by_post_id("JVY-TEST-DEBUG-001")
+    assert post.status == PostStatus.PENDING_APPROVAL
+
+
+def test_telegram_admin_cannot_approve_or_publish(test_setup):
+    """Admin role (1293148688) cannot approve posts; only founder (8164283098) has approval authority."""
+    tg_service = test_setup["tg_service"]
+    mock_tg = test_setup["mock_tg"]
+    repos = test_setup["repos"]
+    token = test_setup["approval"].approval_token
+
+    payload = {
+        "update_id": 10009,
+        "callback_query": {
+            "id": "cb_query_admin_attempt",
+            "from": {"id": ADMIN_ID},
+            "message": {"message_id": 19, "chat": {"id": ADMIN_ID}},
+            "data": f"approve:{token}",
+        },
+    }
+
+    res = tg_service.handle_webhook_callback(payload)
+    assert res["status"] == "unauthorized"
+    assert res["code"] == "UNAUTHORIZED_USER"
+
+    # Post must remain pending approval
+    post = repos.posts.get_by_post_id("JVY-TEST-DEBUG-001")
+    assert post.status == PostStatus.PENDING_APPROVAL
+
+    # Callback answered with alert
+    assert any(c["callback_query_id"] == "cb_query_admin_attempt" for c in mock_tg.answered_callbacks)
+
+
+def test_telegram_admin_cannot_reject(test_setup):
+    """Admin role cannot reject posts or trigger draft regeneration."""
+    tg_service = test_setup["tg_service"]
+    repos = test_setup["repos"]
+    token = test_setup["approval"].approval_token
+
+    payload = {
+        "update_id": 10010,
+        "callback_query": {
+            "id": "cb_query_admin_reject",
+            "from": {"id": ADMIN_ID},
+            "message": {"message_id": 19, "chat": {"id": ADMIN_ID}},
+            "data": f"reject:{token}",
+        },
+    }
+
+    res = tg_service.handle_webhook_callback(payload)
+    assert res["status"] == "unauthorized"
+    assert res["code"] == "UNAUTHORIZED_USER"
+
+    post = repos.posts.get_by_post_id("JVY-TEST-DEBUG-001")
+    assert post.status == PostStatus.PENDING_APPROVAL
+    assert post.current_revision == 1
+

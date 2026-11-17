@@ -32,6 +32,7 @@ def get_telegram_provider(
     if chosen_type == "mock":
         return MockTelegramProvider(
             founder_chat_id=overrides.get("founder_chat_id", settings.TELEGRAM_FOUNDER_CHAT_ID),
+            admin_chat_id=overrides.get("admin_chat_id", settings.TELEGRAM_ADMIN_CHAT_ID),
             webhook_secret=overrides.get("webhook_secret", settings.TELEGRAM_WEBHOOK_SECRET),
             should_fail=overrides.get("should_fail", False),
             failure_error=overrides.get("failure_error", "Mock simulated Telegram dispatch failure"),
@@ -41,6 +42,7 @@ def get_telegram_provider(
     return TelegramApiProvider(
         bot_token=overrides.get("bot_token", settings.TELEGRAM_BOT_TOKEN),
         founder_chat_id=overrides.get("founder_chat_id", settings.TELEGRAM_FOUNDER_CHAT_ID),
+        admin_chat_id=overrides.get("admin_chat_id", settings.TELEGRAM_ADMIN_CHAT_ID),
         webhook_secret=overrides.get("webhook_secret", settings.TELEGRAM_WEBHOOK_SECRET),
         base_url=overrides.get("base_url", settings.TELEGRAM_API_BASE_URL),
         http_client=overrides.get("http_client"),

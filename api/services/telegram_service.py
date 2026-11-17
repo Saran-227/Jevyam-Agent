@@ -36,10 +36,12 @@ class TelegramService:
         approval_service: Optional[ApprovalService] = None,
         provider: Optional[BaseTelegramProvider] = None,
         founder_chat_id: Optional[str] = None,
+        admin_chat_id: Optional[str] = None,
     ):
         self.approval_service = approval_service or ApprovalService()
         self.provider = provider or get_telegram_provider()
         self._founder_chat_id = str(founder_chat_id).strip() if founder_chat_id is not None else None
+        self._admin_chat_id = str(admin_chat_id).strip() if admin_chat_id is not None else None
         self._processed_callback_ids: Set[str] = set()
         self._in_flight_tokens: Set[str] = set()
         self._lock = threading.Lock()
@@ -49,33 +51,47 @@ class TelegramService:
         """Resolve current configured founder Chat ID."""
         if self._founder_chat_id is not None:
             return self._founder_chat_id
-        provider_id = getattr(self.provider, "founder_chat_id", None)
-        return str(provider_id or settings.TELEGRAM_FOUNDER_CHAT_ID or "").strip()
+        if hasattr(self.provider, "founder_chat_id"):
+            provider_id = getattr(self.provider, "founder_chat_id")
+            if provider_id is not None:
+                return str(provider_id).strip()
+        return str(settings.TELEGRAM_FOUNDER_CHAT_ID or "").strip()
 
     @founder_chat_id.setter
     def founder_chat_id(self, val: Optional[str]) -> None:
         self._founder_chat_id = str(val).strip() if val is not None else None
 
-    def is_authorized_user(
+    @property
+    def admin_chat_id(self) -> str:
+        """Resolve current configured admin Chat ID."""
+        if self._admin_chat_id is not None:
+            return self._admin_chat_id
+        if hasattr(self.provider, "admin_chat_id"):
+            provider_id = getattr(self.provider, "admin_chat_id")
+            if provider_id is not None:
+                return str(provider_id).strip()
+        return str(settings.TELEGRAM_ADMIN_CHAT_ID or "").strip()
+
+    @admin_chat_id.setter
+    def admin_chat_id(self, val: Optional[str]) -> None:
+        self._admin_chat_id = str(val).strip() if val is not None else None
+
+    def is_authorized_founder(
         self,
         chat_id: Optional[str] = None,
         sender_id: Optional[str] = None,
     ) -> bool:
         """Validate whether the incoming interaction originates strictly from the authorized founder.
 
-        Both chat_id and sender_id are validated against the configured founder Chat ID.
-        In Telegram direct chats with bots, chat.id and from.id both match the user's ID.
-        If an unauthorized user in a group or someone who obtained an approval message attempts to click,
-        the request is strictly rejected.
+        Both chat_id and sender_id are validated against the configured founder Chat ID (8164283098).
         """
         expected = self.founder_chat_id
         if not expected:
-            return True  # If unconfigured in local dev/mock test without restrictions
+            return True
 
         clean_chat = str(chat_id or "").strip()
         clean_sender = str(sender_id or "").strip()
 
-        # When both chat_id and sender_id are present, both must match the authorized founder
         if clean_chat and clean_sender:
             return clean_chat == expected and clean_sender == expected
         if clean_sender:
@@ -84,12 +100,42 @@ class TelegramService:
             return clean_chat == expected
         return False
 
+    def is_authorized_admin(
+        self,
+        chat_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
+    ) -> bool:
+        """Validate whether the incoming interaction originates strictly from the authorized admin (1293148688)."""
+        expected = self.admin_chat_id
+        if not expected:
+            return False
+
+        clean_chat = str(chat_id or "").strip()
+        clean_sender = str(sender_id or "").strip()
+
+        if clean_chat and clean_sender:
+            return clean_chat == expected and clean_sender == expected
+        if clean_sender:
+            return clean_sender == expected
+        if clean_chat:
+            return clean_chat == expected
+        return False
+
+    def is_authorized_user(
+        self,
+        chat_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
+    ) -> bool:
+        """Validate whether the incoming interaction originates from an authorized user (Founder or Admin)."""
+        return self.is_authorized_founder(chat_id=chat_id, sender_id=sender_id) or self.is_authorized_admin(chat_id=chat_id, sender_id=sender_id)
+
     def send_post_approval_notification(
         self,
         post_id: str,
         chat_id: Optional[str] = None,
+        notify_admin: bool = True,
     ) -> TelegramMessageResponse:
-        """Construct and send an interactive approval notification to founder via Telegram."""
+        """Construct and send an interactive approval notification to founder, and an informational preview copy to admin."""
         post = self.approval_service.repos.posts.get_by_post_id(post_id)
         if not post:
             raise PostNotFoundError(f"Post '{post_id}' does not exist.")
@@ -127,7 +173,7 @@ class TelegramService:
 
         target_recipient = str(chat_id or self.founder_chat_id or settings.TELEGRAM_FOUNDER_CHAT_ID).strip()
 
-        # Build payload
+        # Build payload for founder (interactive card with buttons)
         payload = TelegramApprovalMessagePayload(
             post_id=post.post_id,
             revision_number=post.current_revision,
@@ -142,7 +188,86 @@ class TelegramService:
             chat_id=target_recipient,
         )
 
-        return self.provider.send_approval_message(payload, chat_id=target_recipient)
+        founder_res = self.provider.send_approval_message(payload, chat_id=target_recipient)
+
+        # Dispatch read-only post preview copy to Admin (NO approval buttons)
+        if notify_admin and self.admin_chat_id:
+            try:
+                self.send_admin_post_preview(post_id=post_id)
+            except Exception as admin_err:
+                logger.warning(f"Failed to dispatch post preview copy to admin: {admin_err}")
+
+        return founder_res
+
+    def send_admin_post_preview(
+        self,
+        post_id: str,
+        chat_id: Optional[str] = None,
+    ) -> Optional[TelegramMessageResponse]:
+        """Deliver a read-only post preview with companion visual and caption to Admin (NO approval buttons)."""
+        target_chat = str(chat_id or self.admin_chat_id).strip()
+        if not target_chat:
+            return None
+
+        post = self.approval_service.repos.posts.get_by_post_id(post_id)
+        if not post:
+            raise PostNotFoundError(f"Post '{post_id}' does not exist.")
+
+        payload = TelegramApprovalMessagePayload(
+            post_id=post.post_id,
+            revision_number=post.current_revision,
+            hook=post.hook,
+            caption=post.caption,
+            hashtags=post.hashtags,
+            visual_concept=post.visual_concept,
+            approval_token="",  # No token needed for admin copy
+            approval_url="",
+            image_url=post.image_url,
+            chat_id=target_chat,
+        )
+        return self.provider.send_post_preview(payload, chat_id=target_chat, is_admin_preview=True)
+
+    def send_admin_notification(
+        self,
+        text: str,
+        chat_id: Optional[str] = None,
+    ) -> Optional[TelegramMessageResponse]:
+        """Send an operational text notification to the Admin Telegram account."""
+        target_chat = str(chat_id or self.admin_chat_id).strip()
+        if not target_chat:
+            return None
+        return self.provider.send_text_message(chat_id=target_chat, text=text)
+
+    def get_system_status(self) -> str:
+        """Generate human-readable operational status report for Admin (/status command)."""
+        # 1. Database & Repositories Check
+        db_status = "Connected ✅"
+        last_post_info = "None"
+        try:
+            posts = self.approval_service.repos.posts.get_previous_posts(limit=10)
+            if posts:
+                latest = sorted(posts, key=lambda p: str(getattr(p, "created_at", None) or p.post_id), reverse=True)[0]
+                last_post_info = f"<code>{latest.post_id}</code> (Rev #{latest.current_revision}, Status: <b>{latest.status.value}</b>)"
+        except Exception as e:
+            db_status = f"Degraded ⚠️ ({html.escape(str(e)[:50])})"
+
+        # 2. Scheduler Check
+        sched_time = f"{settings.SCHEDULE_HOUR:02d}:{settings.SCHEDULE_MINUTE:02d} {settings.TIMEZONE}"
+        scheduler_status = f"Active ✅ (Daily at {sched_time})"
+
+        # 3. Execution Mode Check
+        mode = "MOCK / DRY-RUN ⚠️" if settings.DRY_RUN else "PRODUCTION (LIVE) 🚀"
+
+        return (
+            f"📊 <b>Jevyam Agent System Status</b>\n\n"
+            f"⚙️ <b>Execution Mode:</b> {mode}\n"
+            f"💾 <b>Database:</b> {db_status}\n"
+            f"📝 <b>Latest Post:</b> {last_post_info}\n"
+            f"⏰ <b>Daily Scheduler:</b> {scheduler_status}\n"
+            f"👤 <b>Founder Chat ID:</b> <code>{self.founder_chat_id or 'Not Configured'}</code> (Approver ✅)\n"
+            f"🛠️ <b>Admin Chat ID:</b> <code>{self.admin_chat_id or 'Not Configured'}</code> (Administrator ✅)\n"
+            f"🔗 <b>LinkedIn Target Org:</b> <code>{settings.LINKEDIN_ORGANIZATION_ID or '108376955'}</code>"
+        )
 
     def handle_webhook_callback(
         self,
@@ -184,38 +309,157 @@ class TelegramService:
                 "message": f"Callback ID '{event.callback_query_id}' already processed.",
             }
 
-        # 3b. Handle Informational Commands (/start, /chatid, /id)
+        # 3b. Handle Commands (/start, /help, /status, /run, /id, /chatid)
         if event.text_body:
-            cmd = event.text_body.strip().lower()
-            if cmd in ("/start", "/id", "/chatid", "start", "id", "chatid"):
-                is_auth = self.is_authorized_user(chat_id=event.chat_id, sender_id=event.sender_id)
-                status_badge = "Authorized Founder ✅" if is_auth else "Unregistered User ⚠️"
-                info_msg = (
-                    f"👋 <b>Jevyam Technologies AI Marketing Bot</b>\n\n"
-                    f"🆔 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
-                    f"👤 <b>Sender ID:</b> <code>{event.sender_id}</code>\n"
-                    f"📋 <b>Status:</b> {status_badge}\n\n"
-                )
-                if is_auth:
-                    info_msg += (
-                        "You are configured as the authorized founder. You will receive daily post previews, "
-                        "branded images, approval buttons, and publishing notifications here."
+            raw_text = event.text_body.strip()
+            cmd = raw_text.split()[0].lower() if raw_text else ""
+            if not cmd.startswith("/"):
+                cmd = f"/{cmd}"
+
+            # 1. /start, /id, /chatid
+            if cmd in ("/start", "/id", "/chatid"):
+                is_admin = self.is_authorized_admin(chat_id=event.chat_id, sender_id=event.sender_id)
+                is_founder = self.is_authorized_founder(chat_id=event.chat_id, sender_id=event.sender_id)
+
+                if is_admin:
+                    info_msg = (
+                        f"👋 <b>Jevyam Technologies AI Marketing Bot</b>\n\n"
+                        f"🆔 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                        f"👤 <b>Sender ID:</b> <code>{event.sender_id}</code>\n"
+                        f"📋 <b>Role:</b> ADMIN ✅\n\n"
+                        f"You are configured as the authorized administrator. You will receive copies of generated "
+                        f"post previews, operational alerts, publishing notifications, and scheduler status.\n\n"
+                        f"Type <code>/help</code> to view available admin commands."
                     )
+                    if event.chat_id:
+                        self.provider.send_text_message(chat_id=event.chat_id, text=info_msg)
+                    return {
+                        "status": "info",
+                        "code": "ADMIN_IDENTIFIED",
+                        "role": "admin",
+                        "is_authorized": True,
+                        "chat_id": event.chat_id,
+                        "sender_id": event.sender_id,
+                        "message": "Admin identified successfully.",
+                    }
+                elif is_founder:
+                    info_msg = (
+                        f"👋 <b>Jevyam Technologies AI Marketing Bot</b>\n\n"
+                        f"🆔 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                        f"👤 <b>Sender ID:</b> <code>{event.sender_id}</code>\n"
+                        f"📋 <b>Status:</b> Authorized Founder ✅\n\n"
+                        f"You are configured as the authorized founder. You will receive daily post previews, "
+                        f"branded visual images, approval buttons, and publishing notifications here."
+                    )
+                    if event.chat_id:
+                        self.provider.send_text_message(chat_id=event.chat_id, text=info_msg)
+                    return {
+                        "status": "info",
+                        "code": "FOUNDER_IDENTIFIED",
+                        "role": "founder",
+                        "is_authorized": True,
+                        "chat_id": event.chat_id,
+                        "sender_id": event.sender_id,
+                        "message": "Founder identified successfully.",
+                    }
                 else:
-                    info_msg += (
-                        "This chat is not registered as the authorized founder. "
-                        "To authorize, update <code>TELEGRAM_FOUNDER_CHAT_ID</code> in the agent configuration."
+                    info_msg = (
+                        f"👋 <b>Jevyam Technologies AI Marketing Bot</b>\n\n"
+                        f"🆔 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                        f"👤 <b>Sender ID:</b> <code>{event.sender_id}</code>\n"
+                        f"📋 <b>Status:</b> Unregistered User ⚠️\n\n"
+                        f"This chat is not registered as the authorized founder or administrator. "
+                        f"To authorize, update <code>TELEGRAM_FOUNDER_CHAT_ID</code> or <code>TELEGRAM_ADMIN_CHAT_ID</code>."
                     )
+                    if event.chat_id:
+                        self.provider.send_text_message(chat_id=event.chat_id, text=info_msg)
+                    return {
+                        "status": "info",
+                        "code": "UNAUTHORIZED_USER",
+                        "role": "unregistered",
+                        "is_authorized": False,
+                        "chat_id": event.chat_id,
+                        "sender_id": event.sender_id,
+                        "message": "Unregistered user identified.",
+                    }
+
+            # 2. /help
+            elif cmd in ("/help", "/commands"):
+                is_admin = self.is_authorized_admin(chat_id=event.chat_id, sender_id=event.sender_id)
+                if not is_admin:
+                    if event.chat_id:
+                        self.provider.send_text_message(
+                            chat_id=event.chat_id,
+                            text="⛔ <b>Access Denied:</b> Administrative commands are restricted to authorized administrators.",
+                        )
+                    return {"status": "unauthorized", "code": "ADMIN_ONLY"}
+
+                help_msg = (
+                    f"🛠️ <b>Jevyam Technologies Admin Commands</b>\n\n"
+                    f"• <code>/status</code> — Inspect system health, database, scheduler, and latest post.\n"
+                    f"• <code>/run</code> — Trigger daily post generation immediately.\n"
+                    f"• <code>/id</code> — Show your account identifiers.\n"
+                    f"• <code>/help</code> — Show this commands manual."
+                )
                 if event.chat_id:
-                    self.provider.send_text_message(chat_id=event.chat_id, text=info_msg)
-                return {
-                    "status": "info",
-                    "code": "COMMAND_HANDLED",
-                    "chat_id": event.chat_id,
-                    "sender_id": event.sender_id,
-                    "is_authorized": is_auth,
-                    "message": f"Handled {cmd} command.",
-                }
+                    self.provider.send_text_message(chat_id=event.chat_id, text=help_msg)
+                return {"status": "info", "code": "HELP_HANDLED"}
+
+            # 3. /status
+            elif cmd == "/status":
+                is_admin = self.is_authorized_admin(chat_id=event.chat_id, sender_id=event.sender_id)
+                if not is_admin:
+                    if event.chat_id:
+                        self.provider.send_text_message(
+                            chat_id=event.chat_id,
+                            text="⛔ <b>Access Denied:</b> Administrative commands are restricted to authorized administrators.",
+                        )
+                    return {"status": "unauthorized", "code": "ADMIN_ONLY"}
+
+                status_report = self.get_system_status()
+                if event.chat_id:
+                    self.provider.send_text_message(chat_id=event.chat_id, text=status_report)
+                return {"status": "info", "code": "STATUS_REPORTED", "report": status_report}
+
+            # 4. /run
+            elif cmd == "/run":
+                is_admin = self.is_authorized_admin(chat_id=event.chat_id, sender_id=event.sender_id)
+                if not is_admin:
+                    if event.chat_id:
+                        self.provider.send_text_message(
+                            chat_id=event.chat_id,
+                            text="⛔ <b>Access Denied:</b> Administrative commands are restricted to authorized administrators.",
+                        )
+                    return {"status": "unauthorized", "code": "ADMIN_ONLY"}
+
+                if event.chat_id:
+                    self.provider.send_text_message(
+                        chat_id=event.chat_id,
+                        text="⏳ <b>Manual Run Triggered:</b> Initiating daily post generation...",
+                    )
+
+                try:
+                    from agent.orchestrator import DailyOrchestrator
+                    orchestrator = DailyOrchestrator(
+                        repo_manager=self.approval_service.repos,
+                        approval_service=self.approval_service,
+                        telegram_service=self,
+                    )
+                    run_res = orchestrator.run(force=True)
+                    if event.chat_id:
+                        self.provider.send_text_message(
+                            chat_id=event.chat_id,
+                            text=f"✅ <b>Manual Run Completed!</b>\n\nPost: <code>{run_res.post_id}</code> (Rev #{run_res.revision_number})\nTopic: {run_res.topic}\nStatus: {run_res.status}",
+                        )
+                    return {"status": "accepted", "code": "MANUAL_RUN_COMPLETED", "post_id": run_res.post_id}
+                except Exception as run_err:
+                    err_str = html.escape(str(run_err))
+                    if event.chat_id:
+                        self.provider.send_text_message(
+                            chat_id=event.chat_id,
+                            text=f"❌ <b>Manual Run Failed:</b> {err_str}",
+                        )
+                    return {"status": "error", "code": "MANUAL_RUN_FAILED", "error": str(run_err)}
 
         # 4. Extract action and token
         action: Optional[str] = None
@@ -243,17 +487,25 @@ class TelegramService:
                 "message": "Missing actionable command or approval token in callback.",
             }
 
-        # 4b. Strict Founder Authorization Check
-        if not self.is_authorized_user(chat_id=event.chat_id, sender_id=event.sender_id):
+        # 4b. Strict Founder Authorization Check (Only Founder 8164283098 can approve/reject)
+        if not self.is_authorized_founder(chat_id=event.chat_id, sender_id=event.sender_id):
             logger.warning(
                 f"[UNAUTHORIZED] Telegram callback rejected: chat_id='{event.chat_id}', "
                 f"sender_id='{event.sender_id}'. Expected founder_chat_id='{self.founder_chat_id}'."
             )
+            if self.is_authorized_admin(chat_id=event.chat_id, sender_id=event.sender_id):
+                denial_text = (
+                    "⛔ <b>Access Denied:</b> As Admin, you cannot approve, reject, or regenerate posts. "
+                    "Actionable approval buttons are reserved exclusively for the Founder (<code>8164283098</code>)."
+                )
+            else:
+                denial_text = "⛔ <b>Access Denied:</b> You are not authorized to approve or regenerate posts for Jevyam Technologies."
+
             if event.chat_id:
                 try:
                     self.provider.send_text_message(
                         chat_id=event.chat_id,
-                        text="⛔ <b>Access Denied:</b> You are not authorized to approve or regenerate posts for Jevyam Technologies.",
+                        text=denial_text,
                     )
                 except Exception as notify_err:
                     logger.warning(f"Failed to send access-denied message to chat '{event.chat_id}': {notify_err}")
@@ -292,6 +544,13 @@ class TelegramService:
                     self.provider.send_text_message(
                         chat_id=target_chat,
                         text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
+                    )
+
+                # Send publication update to admin
+                if self.admin_chat_id:
+                    self.send_admin_notification(
+                        f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
+                        f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
                     )
 
                 return {
@@ -449,6 +708,14 @@ class TelegramService:
                 self.send_post_approval_notification(
                     post_id=result.post_id,
                     chat_id=target_chat,
+                )
+
+            # Operational notification to admin
+            if self.admin_chat_id:
+                self.send_admin_notification(
+                    f"🔄 <b>Post Rejection Notice (Admin Copy)</b>\n\n"
+                    f"Founder requested revision for Post <code>{result.post_id}</code>. "
+                    f"New revision Rev #{result.revision} was generated and delivered to Founder for approval."
                 )
 
             return {

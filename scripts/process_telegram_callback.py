@@ -130,18 +130,26 @@ def main() -> int:
 
     target_chat = settings.TELEGRAM_FOUNDER_CHAT_ID or chat_id
 
-    # 2. Strict Founder Authorization Verification
+    # 2. Strict Founder Authorization Verification (Only Founder 8164283098 can approve/reject)
     if chat_id or user_id:
-        if not telegram_service.is_authorized_user(chat_id=chat_id, sender_id=user_id):
+        if not telegram_service.is_authorized_founder(chat_id=chat_id, sender_id=user_id):
             logger.warning(
-                f"[SECURITY] Unauthorized callback execution rejected. chat_id='{chat_id}', "
+                f"[SECURITY] Unauthorized approval callback rejected. chat_id='{chat_id}', "
                 f"user_id='{user_id}'. Expected founder_chat_id='{settings.TELEGRAM_FOUNDER_CHAT_ID}'."
             )
+            if telegram_service.is_authorized_admin(chat_id=chat_id, sender_id=user_id):
+                denial_text = (
+                    "⛔ <b>Access Denied:</b> As Admin, you cannot approve, reject, or regenerate posts. "
+                    "Actionable approval buttons are reserved exclusively for the Founder (<code>8164283098</code>)."
+                )
+            else:
+                denial_text = "⛔ <b>Access Denied:</b> You are not authorized to approve or regenerate posts for Jevyam Technologies."
+
             if chat_id:
                 try:
                     telegram_service.provider.send_text_message(
                         chat_id=chat_id,
-                        text="⛔ <b>Access Denied:</b> You are not authorized to approve or regenerate posts for Jevyam Technologies.",
+                        text=denial_text,
                     )
                 except Exception as notify_err:
                     logger.warning(f"Failed to send access-denied message to chat '{chat_id}': {notify_err}")
@@ -177,6 +185,16 @@ def main() -> int:
                     chat_id=target_chat,
                     text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
                 )
+
+            # Operational notification to Admin
+            if telegram_service.admin_chat_id:
+                try:
+                    telegram_service.send_admin_notification(
+                        f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
+                        f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
+                    )
+                except Exception as notify_err:
+                    logger.warning(f"Failed to send admin publication alert: {notify_err}")
 
             logger.info(
                 f"[SUCCESS] Post '{result.post_id}' (Rev #{result.revision}) approved. "
@@ -244,6 +262,17 @@ def main() -> int:
                     post_id=result.post_id,
                     chat_id=target_chat,
                 )
+
+            # Operational notification to Admin
+            if telegram_service.admin_chat_id:
+                try:
+                    telegram_service.send_admin_notification(
+                        f"🔄 <b>Post Rejection Notice (Admin Copy)</b>\n\n"
+                        f"Founder requested revision for Post <code>{result.post_id}</code>. "
+                        f"New Rev #{result.revision} was generated and dispatched to Founder for approval."
+                    )
+                except Exception as notify_err:
+                    logger.warning(f"Failed to send admin rejection alert: {notify_err}")
 
             logger.info(
                 f"[SUCCESS] Post '{result.post_id}' revision regenerated to Rev #{result.revision} "

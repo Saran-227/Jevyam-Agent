@@ -83,6 +83,7 @@ class DailyOrchestrator:
         )
         self.whatsapp_service = whatsapp_service
         self.telegram_service = telegram_service
+        self._explicit_whatsapp = whatsapp_service is not None and telegram_service is None
         self.company_dir = company_dir
         self.prompts_dir = prompts_dir
         self.posts_dir = posts_dir
@@ -213,6 +214,32 @@ class DailyOrchestrator:
         self.validate_configuration(mode=clean_mode)
         logger.info(f"[INFO] Configuration validated successfully for {clean_mode.upper()} mode.")
 
+        # Resolve active Telegram service for operational notifications (if not running explicit WhatsApp)
+        tg_svc = self.telegram_service
+        if not getattr(self, "_explicit_whatsapp", False):
+            if tg_svc is None and (settings.APPROVAL_PROVIDER or "telegram").lower().strip() == "telegram":
+                if clean_mode == "mock":
+                    tg_svc = TelegramService(
+                        approval_service=self.approval_service,
+                        provider=MockTelegramProvider(),
+                    )
+                else:
+                    tg_svc = TelegramService(
+                        approval_service=self.approval_service,
+                        provider=get_telegram_provider("telegram"),
+                    )
+
+        # Operational alert: Generation Started
+        if tg_svc and tg_svc.admin_chat_id:
+            try:
+                tg_svc.send_admin_notification(
+                    f"🚀 <b>Daily Post Generation Started</b>\n\n"
+                    f"Target Date: <code>{target_date}</code>\n"
+                    f"Mode: <code>{clean_mode.upper()}</code>"
+                )
+            except Exception as notify_err:
+                logger.warning(f"Failed to send start notification to admin: {notify_err}")
+
         # 2. Daily Idempotency Protection
         if not force:
             logger.info(f"[INFO] Checking daily idempotency for date: {clean_date_digits}...")
@@ -226,6 +253,17 @@ class DailyOrchestrator:
                 logger.info("=" * 60)
                 logger.info("[INFO] Daily workflow completed (Idempotent Skip).")
                 logger.info("=" * 60)
+
+                # Operational alert: Idempotent Skip
+                if tg_svc and tg_svc.admin_chat_id:
+                    try:
+                        tg_svc.send_admin_notification(
+                            f"ℹ️ <b>Daily Generation Skipped (Idempotent)</b>\n\n"
+                            f"Post <code>{existing_post.post_id}</code> already exists for date {target_date}."
+                        )
+                    except Exception as notify_err:
+                        logger.warning(f"Failed to send skip notification to admin: {notify_err}")
+
                 return DailyRunResult(
                     success=True,
                     is_skipped=True,
@@ -270,6 +308,11 @@ class DailyOrchestrator:
         except Exception as e:
             err_msg = f"Content generation pipeline failed: {e}"
             logger.error(f"[ERROR] {err_msg}")
+            if tg_svc and tg_svc.admin_chat_id:
+                try:
+                    tg_svc.send_admin_notification(f"❌ <b>Daily Generation Failed</b>\n\n{err_msg}")
+                except Exception:
+                    pass
             raise DailyOrchestrationError(err_msg) from e
 
         # Fail closed: ensure draft has a valid image URL if image is required
@@ -300,7 +343,7 @@ class DailyOrchestrator:
 
         # 5. Approval Notification Dispatch (Telegram by default, or WhatsApp)
         provider_type = (settings.APPROVAL_PROVIDER or "telegram").lower().strip()
-        if self.whatsapp_service is not None and self.telegram_service is None:
+        if getattr(self, "_explicit_whatsapp", False) or (self.whatsapp_service is not None and self.telegram_service is None):
             provider_type = "whatsapp"
 
         logger.info(f"[INFO] Preparing approval notification via {provider_type.upper()} for post '{draft.post_id}'...")
@@ -377,6 +420,19 @@ class DailyOrchestrator:
         logger.info("=" * 60)
         logger.info(f"[INFO] Daily workflow completed successfully for {draft.post_id}.")
         logger.info("=" * 60)
+
+        # Operational alert: Completion Summary
+        if tg_svc and tg_svc.admin_chat_id:
+            try:
+                tg_svc.send_admin_notification(
+                    f"✅ <b>Daily Run Completed</b>\n\n"
+                    f"Post ID: <code>{draft.post_id}</code> (Rev #{draft.revision})\n"
+                    f"Topic: {draft.topic}\n"
+                    f"Status: PENDING_APPROVAL\n"
+                    f"Official approval card dispatched to Founder."
+                )
+            except Exception as notify_err:
+                logger.warning(f"Failed to send completion notice to admin: {notify_err}")
 
         return DailyRunResult(
             success=True,

@@ -136,6 +136,17 @@ def create_mock_gemini_client() -> Any:
     return client
 
 
+def _notify_admin_on_failure(text: str) -> None:
+    """Best-effort notification to Admin on script failure."""
+    try:
+        from api.services.telegram_service import TelegramService
+        tg = TelegramService()
+        if tg.admin_chat_id:
+            tg.send_admin_notification(text)
+    except Exception:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Jevyam AI Marketing Agent - Daily Scheduled Automation (Phase 6)"
@@ -270,12 +281,15 @@ def main() -> int:
 
     except ConfigurationError as ce:
         print(f"\n[CONFIGURATION ERROR] {ce}", file=sys.stderr)
+        _notify_admin_on_failure(f"❌ <b>Daily Run Configuration Error:</b> {ce}")
         return 1
     except DailyOrchestrationError as oe:
         print(f"\n[ORCHESTRATION ERROR] {oe}", file=sys.stderr)
+        _notify_admin_on_failure(f"❌ <b>Daily Run Orchestration Error:</b> {oe}")
         return 1
     except Exception as e:
         print(f"\n[UNEXPECTED ERROR] {e}", file=sys.stderr)
+        _notify_admin_on_failure(f"❌ <b>Daily Run Unexpected Error:</b> {e}")
         return 1
 
 

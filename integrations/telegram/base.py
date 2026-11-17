@@ -50,6 +50,25 @@ class BaseTelegramProvider(ABC):
         pass
 
     @abstractmethod
+    def send_post_preview(
+        self,
+        payload: TelegramApprovalMessagePayload,
+        chat_id: Optional[str] = None,
+        is_admin_preview: bool = True,
+    ) -> TelegramMessageResponse:
+        """Construct and dispatch a post preview with companion image but WITHOUT actionable approval buttons.
+
+        Args:
+            payload: Structured post data.
+            chat_id: Target chat ID (e.g. admin chat ID).
+            is_admin_preview: Flag indicating whether this is an admin informational copy.
+
+        Returns:
+            TelegramMessageResponse with delivery status and message ID.
+        """
+        pass
+
+    @abstractmethod
     def answer_callback_query(
         self,
         callback_query_id: str,
