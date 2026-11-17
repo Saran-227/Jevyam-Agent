@@ -247,5 +247,223 @@ function createMockFetch(responses = {}) {
   assert.ok(msgBody.text.includes("Dispatch Error"));
 }
 
+// 7. Admin /start and /help Commands
+{
+  console.log("Test 7: Admin /start and /help commands");
+  const { mockFetch, calls } = createMockFetch();
+  globalThis.fetch = mockFetch;
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
+    TELEGRAM_FOUNDER_CHAT_ID: FOUNDER_CHAT_ID,
+    TELEGRAM_ADMIN_CHAT_ID: "1293148688",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+  };
+
+  // Admin /start
+  const reqStart = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 1293148688 },
+        from: { id: 1293148688 },
+        text: "/start",
+      },
+    }),
+  });
+  const resStart = await worker.fetch(reqStart, env, {});
+  assert.strictEqual(resStart.status, 200);
+  const dataStart = await resStart.json();
+  assert.strictEqual(dataStart.role, "admin");
+
+  const sendMsgCall = calls.find(c => c.url.includes("sendMessage"));
+  assert.ok(sendMsgCall);
+  const msgBody = JSON.parse(sendMsgCall.options.body);
+  assert.ok(msgBody.text.includes("ADMIN"));
+
+  // Admin /help
+  const reqHelp = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 1293148688 },
+        from: { id: 1293148688 },
+        text: "/help",
+      },
+    }),
+  });
+  const resHelp = await worker.fetch(reqHelp, env, {});
+  assert.strictEqual(resHelp.status, 200);
+}
+
+// 8. Admin /status Command
+{
+  console.log("Test 8: Admin /status command reports system status");
+  const { mockFetch, calls } = createMockFetch();
+  globalThis.fetch = mockFetch;
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
+    TELEGRAM_FOUNDER_CHAT_ID: FOUNDER_CHAT_ID,
+    TELEGRAM_ADMIN_CHAT_ID: "1293148688",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+  };
+
+  const req = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 1293148688 },
+        from: { id: 1293148688 },
+        text: "/status",
+      },
+    }),
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.strictEqual(res.status, 200);
+  const data = await res.json();
+  assert.strictEqual(data.handled, "status_command");
+
+  const sendMsgCall = calls.find(c => c.url.includes("sendMessage"));
+  assert.ok(sendMsgCall);
+  const msgBody = JSON.parse(sendMsgCall.options.body);
+  assert.ok(msgBody.text.includes("System Status"));
+  assert.ok(msgBody.text.includes("1293148688"));
+}
+
+// 9. Admin /run Command Dispatches Workflow to GitHub Actions
+{
+  console.log("Test 9: Admin /run command dispatches workflow to GitHub Actions");
+  const { mockFetch, calls } = createMockFetch({
+    "api.github.com": () => new Response(null, { status: 204 }),
+  });
+  globalThis.fetch = mockFetch;
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
+    TELEGRAM_FOUNDER_CHAT_ID: FOUNDER_CHAT_ID,
+    TELEGRAM_ADMIN_CHAT_ID: "1293148688",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+    GITHUB_TOKEN: FAKE_GITHUB_TOKEN,
+    GITHUB_REPO_OWNER: "Saran-227",
+    GITHUB_REPO_NAME: "Jevyam-Agent",
+  };
+
+  const req = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 1293148688 },
+        from: { id: 1293148688 },
+        text: "/run",
+      },
+    }),
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.strictEqual(res.status, 200);
+  const data = await res.json();
+  assert.strictEqual(data.handled, "run_dispatched");
+
+  const ghCall = calls.find(c => c.url.includes("daily-marketing.yml/dispatches"));
+  assert.ok(ghCall, "GitHub Actions dispatch should be invoked");
+  const ghBody = JSON.parse(ghCall.options.body);
+  assert.strictEqual(ghBody.inputs.force, true);
+}
+
+// 10. Unauthorized User Rejected From Admin Commands
+{
+  console.log("Test 10: Unauthorized user rejected from admin commands");
+  const { mockFetch, calls } = createMockFetch();
+  globalThis.fetch = mockFetch;
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
+    TELEGRAM_FOUNDER_CHAT_ID: FOUNDER_CHAT_ID,
+    TELEGRAM_ADMIN_CHAT_ID: "1293148688",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+  };
+
+  const req = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 999888777 },
+        from: { id: 999888777 },
+        text: "/run",
+      },
+    }),
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.strictEqual(res.status, 403);
+  const data = await res.json();
+  assert.strictEqual(data.error, "unauthorized");
+
+  const sendMsgCall = calls.find(c => c.url.includes("sendMessage"));
+  assert.ok(sendMsgCall);
+  const msgBody = JSON.parse(sendMsgCall.options.body);
+  assert.ok(msgBody.text.includes("Access Denied"));
+}
+
+// 11. Admin CANNOT Trigger Founder Approval Callbacks
+{
+  console.log("Test 11: Admin CANNOT trigger founder approval callbacks");
+  const { mockFetch, calls } = createMockFetch();
+  globalThis.fetch = mockFetch;
+
+  const env = {
+    TELEGRAM_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
+    TELEGRAM_FOUNDER_CHAT_ID: FOUNDER_CHAT_ID,
+    TELEGRAM_ADMIN_CHAT_ID: "1293148688",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+  };
+
+  const req = new Request("https://relay.workers.dev/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Telegram-Bot-Api-Secret-Token": FAKE_WEBHOOK_SECRET,
+    },
+    body: JSON.stringify({
+      callback_query: {
+        id: "cb_admin_attempt",
+        from: { id: 1293148688 }, // Admin trying to click YES button
+        message: { chat: { id: 1293148688 } },
+        data: "approve:tok_test_123",
+      },
+    }),
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.strictEqual(res.status, 403);
+  const data = await res.json();
+  assert.ok(data.error.includes("Admin is not authorized to approve posts"));
+
+  // Check alert sent via answerCallbackQuery
+  const ansCall = calls.find(c => c.url.includes("answerCallbackQuery"));
+  assert.ok(ansCall);
+  const ansBody = JSON.parse(ansCall.options.body);
+  assert.strictEqual(ansBody.show_alert, true);
+  assert.ok(ansBody.text.includes("Only the Founder can approve"));
+}
+
 console.log("--- All Cloudflare Worker Unit Tests Passed Successfully! ---");
 
