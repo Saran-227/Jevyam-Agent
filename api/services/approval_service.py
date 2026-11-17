@@ -230,28 +230,17 @@ class ApprovalService:
         # 3. Publish to LinkedIn if enabled
         should_publish = auto_publish if auto_publish is not None else settings.AUTO_PUBLISH_ON_APPROVAL
         pub_service = self.publishing_service
-        has_credentials = False
-        try:
-            from integrations.linkedin.client import LinkedInClient
-            client = LinkedInClient()
-            has_credentials = bool(client.access_token and client.organization_id)
-        except Exception:
-            has_credentials = bool(
-                settings.LINKEDIN_ACCESS_TOKEN
-                and not settings.LINKEDIN_ACCESS_TOKEN.startswith("your_")
-            )
-        is_mock_publishing = settings.LINKEDIN_MOCK_PUBLISHING or (settings.DRY_RUN and has_credentials)
+        is_mock = bool(settings.LINKEDIN_MOCK_PUBLISHING or settings.DRY_RUN)
 
         if pub_service is None and should_publish:
-            if settings.LINKEDIN_MOCK_PUBLISHING or has_credentials:
-                try:
-                    from api.services.publishing_service import PublishingService
-                    pub_service = PublishingService(
-                        repo_manager=self.repos,
-                        mock_mode=is_mock_publishing,
-                    )
-                except Exception:
-                    pub_service = None
+            from api.services.publishing_service import PublishingService
+            try:
+                pub_service = PublishingService(
+                    repo_manager=self.repos,
+                    mock_mode=is_mock,
+                )
+            except Exception as init_err:
+                pub_service = None
 
         published_flag = None
         ext_post_id = None
@@ -264,14 +253,13 @@ class ApprovalService:
                 published_flag = True
                 ext_post_id = pub_result.get("external_post_id")
                 post_url = pub_result.get("post_url")
-                msg = pub_result.get("message") or (
-                    "Post approved and published to LinkedIn Company Page."
-                    if not getattr(pub_service, "mock_mode", False)
-                    else "Post approved and simulated publication to LinkedIn Company Page (Mock Mode)."
-                )
+                msg = pub_result.get("message") or "Post approved and published to LinkedIn Company Page."
             except Exception as e:
                 published_flag = False
                 msg = f"Post approved, but LinkedIn publishing failed: {str(e)}"
+        elif should_publish and not pub_service:
+            published_flag = False
+            msg = "Post approved, but LinkedIn publishing could not proceed: PublishingService unavailable or unconfigured."
 
         return ApprovalActionResponse(
             status="approved",

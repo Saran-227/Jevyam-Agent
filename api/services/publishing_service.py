@@ -57,12 +57,8 @@ class PublishingService:
             self.mock_mode = mock_mode
         elif publisher is not None:
             self.mock_mode = False
-        elif settings.LINKEDIN_MOCK_PUBLISHING:
-            self.mock_mode = True
-        elif settings.DRY_RUN and publisher is None and has_credentials:
-            self.mock_mode = True
         else:
-            self.mock_mode = False
+            self.mock_mode = bool(settings.LINKEDIN_MOCK_PUBLISHING or settings.DRY_RUN)
 
     def publish_approved_post(
         self,
@@ -104,8 +100,8 @@ class PublishingService:
                     "message": f"Post '{post_id}' has already been published to LinkedIn.",
                 }
 
-        # 3. Approval Eligibility Check
-        if post.status != PostStatus.APPROVED:
+        # 3. Approval Eligibility Check (supports retrying previously failed attempts)
+        if post.status not in (PostStatus.APPROVED, PostStatus.FAILED):
             raise PostNotApprovedError(
                 f"Cannot publish post '{post_id}': current status is '{post.status.value}'. "
                 f"Only posts in APPROVED status can be published to LinkedIn."

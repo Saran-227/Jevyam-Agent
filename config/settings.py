@@ -22,7 +22,7 @@ class Settings:
     LINKEDIN_ACCESS_TOKEN = os.getenv("LINKEDIN_ACCESS_TOKEN")
     LINKEDIN_ORGANIZATION_ID = os.getenv("LINKEDIN_ORGANIZATION_ID", "108376955")
     AUTO_PUBLISH_ON_APPROVAL = os.getenv("AUTO_PUBLISH_ON_APPROVAL", "true").lower() in ("true", "1", "yes")
-    LINKEDIN_MOCK_PUBLISHING = os.getenv("LINKEDIN_MOCK_PUBLISHING", "true").lower() in ("true", "1", "yes")
+    LINKEDIN_MOCK_PUBLISHING = os.getenv("LINKEDIN_MOCK_PUBLISHING", "false").lower() in ("true", "1", "yes")
     LINKEDIN_API_VERSION = os.getenv("LINKEDIN_API_VERSION", "202610")
     LINKEDIN_REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
     LINKEDIN_TOKEN_FILE_PATH = os.getenv("LINKEDIN_TOKEN_FILE_PATH", "data/oauth/linkedin_token.json")
@@ -36,8 +36,8 @@ class Settings:
         return f"{base}/auth/linkedin/callback"
 
     APP_BASE_URL = os.getenv("APP_BASE_URL") or "http://127.0.0.1:8000"
-    APP_ENV = os.getenv("APP_ENV", "development")
-    DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes")
+    APP_ENV = os.getenv("APP_ENV", "production")
+    DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
     APPROVAL_EXPIRATION_HOURS = int(os.getenv("APPROVAL_EXPIRATION_HOURS", "24"))
     API_HOST = os.getenv("API_HOST", "127.0.0.1")
     API_PORT = int(os.getenv("API_PORT", "8000"))

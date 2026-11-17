@@ -120,12 +120,22 @@ def main() -> int:
     if args.dry_run:
         settings.DRY_RUN = True
 
-    # 1. Initialize TelegramService and authoritative Repositories
+    # 1. Initialize TelegramService, PublishingService, and authoritative Repositories
     repo_manager = get_repository_manager()
-    approval_service = ApprovalService(repo_manager=repo_manager)
+    is_mock = bool(args.dry_run or settings.DRY_RUN or settings.LINKEDIN_MOCK_PUBLISHING)
+    from api.services.publishing_service import PublishingService
+    publishing_service = PublishingService(
+        repo_manager=repo_manager,
+        mock_mode=is_mock,
+    )
+    approval_service = ApprovalService(
+        repo_manager=repo_manager,
+        publishing_service=publishing_service,
+    )
     telegram_service = TelegramService(
         approval_service=approval_service,
         founder_chat_id=settings.TELEGRAM_FOUNDER_CHAT_ID,
+        admin_chat_id=settings.TELEGRAM_ADMIN_CHAT_ID,
     )
 
     target_chat = settings.TELEGRAM_FOUNDER_CHAT_ID or chat_id
@@ -165,42 +175,70 @@ def main() -> int:
                 auto_publish=auto_pub,
             )
 
-            # Send publication confirmation to founder on Telegram
-            if target_chat:
-                if result.published and result.post_url:
+            # Send publication confirmation or failure notification to founder and admin
+            if result.published is True:
+                if result.post_url:
                     pub_text = (
                         f" and published to LinkedIn Company Page!\n\n"
                         f"🔗 <b>LinkedIn URL:</b> {result.post_url}\n"
                         f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
                     )
-                elif result.published:
+                else:
                     pub_text = (
                         f" and published to LinkedIn Company Page.\n\n"
                         f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
                     )
-                else:
-                    pub_text = " (Dry-run: publication simulated)."
 
-                telegram_service.provider.send_text_message(
-                    chat_id=target_chat,
-                    text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
-                )
-
-            # Operational notification to Admin
-            if telegram_service.admin_chat_id:
-                try:
-                    telegram_service.send_admin_notification(
-                        f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
-                        f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
+                if target_chat:
+                    telegram_service.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
                     )
-                except Exception as notify_err:
-                    logger.warning(f"Failed to send admin publication alert: {notify_err}")
 
-            logger.info(
-                f"[SUCCESS] Post '{result.post_id}' (Rev #{result.revision}) approved. "
-                f"Published: {result.published}, URL: {result.post_url}"
-            )
-            return 0
+                # Operational notification to Admin
+                if telegram_service.admin_chat_id:
+                    try:
+                        telegram_service.send_admin_notification(
+                            f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
+                            f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
+                        )
+                    except Exception as notify_err:
+                        logger.warning(f"Failed to send admin publication alert: {notify_err}")
+
+                logger.info(
+                    f"[SUCCESS] Post '{result.post_id}' (Rev #{result.revision}) approved and published. "
+                    f"URN: {result.external_post_id}, URL: {result.post_url}"
+                )
+                return 0
+            else:
+                fail_msg = (
+                    f"⚠️ <b>Post Approved, But Publishing Failed</b>\n\n"
+                    f"Post <code>{result.post_id}</code> (Rev #{result.revision}) was approved by Founder, "
+                    f"but real LinkedIn publishing failed.\n\n"
+                    f"<b>Details:</b> {html.escape(result.message or 'LinkedIn API error')}\n\n"
+                    f"The post has been placed in FAILED status."
+                )
+                if target_chat:
+                    telegram_service.provider.send_text_message(
+                        chat_id=target_chat,
+                        text=fail_msg,
+                    )
+                if telegram_service.admin_chat_id:
+                    try:
+                        telegram_service.send_admin_notification(
+                            f"🚨 <b>LinkedIn Publishing Failure Alert (Admin Copy)</b>\n\n"
+                            f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}), "
+                            f"but publishing to LinkedIn failed.\n\n"
+                            f"<b>Details:</b> {html.escape(result.message or 'LinkedIn API error')}"
+                        )
+                    except Exception as notify_err:
+                        logger.warning(f"Failed to send admin publication failure alert: {notify_err}")
+
+                logger.error(
+                    f"[FAILURE] Post '{result.post_id}' (Rev #{result.revision}) approved, but real LinkedIn publishing failed: "
+                    f"{result.message}"
+                )
+                return 1
 
         except ApprovalAlreadyProcessedError as ape:
             logger.info(f"[IDEMPOTENT SKIP] Approval already processed: {ape}")

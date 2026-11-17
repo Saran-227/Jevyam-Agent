@@ -527,38 +527,57 @@ class TelegramService:
 
                 # Send confirmation text back to founder
                 if target_chat:
-                    if result.published and result.post_url:
-                        pub_text = (
-                            f" and published to LinkedIn Company Page!\n\n"
-                            f"🔗 <b>LinkedIn URL:</b> {result.post_url}\n"
-                            f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
+                    if result.published is True:
+                        if result.post_url:
+                            pub_text = (
+                                f" and published to LinkedIn Company Page!\n\n"
+                                f"🔗 <b>LinkedIn URL:</b> {result.post_url}\n"
+                                f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
+                            )
+                        else:
+                            pub_text = (
+                                f" and published to LinkedIn Company Page.\n\n"
+                                f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
+                            )
+
+                        self.provider.send_text_message(
+                            chat_id=target_chat,
+                            text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
                         )
-                    elif result.published:
-                        pub_text = (
-                            f" and published to LinkedIn Company Page.\n\n"
-                            f"🆔 <b>Post URN:</b> <code>{result.external_post_id or 'N/A'}</code>"
-                        )
+
+                        # Send publication update to admin
+                        if self.admin_chat_id:
+                            self.send_admin_notification(
+                                f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
+                                f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
+                            )
                     else:
-                        pub_text = "."
+                        fail_msg = (
+                            f"⚠️ <b>Post Approved, But Publishing Failed</b>\n\n"
+                            f"Post <code>{result.post_id}</code> (Rev #{result.revision}) was approved by Founder, "
+                            f"but real LinkedIn publishing could not proceed.\n\n"
+                            f"<b>Details:</b> {html.escape(result.message or 'LinkedIn API error')}\n\n"
+                            f"The post has been placed in FAILED status."
+                        )
+                        self.provider.send_text_message(
+                            chat_id=target_chat,
+                            text=fail_msg,
+                        )
 
-                    self.provider.send_text_message(
-                        chat_id=target_chat,
-                        text=f"✅ <b>Approved!</b> Post <code>{result.post_id}</code> (Rev #{result.revision}) approved{pub_text}",
-                    )
-
-                # Send publication update to admin
-                if self.admin_chat_id:
-                    self.send_admin_notification(
-                        f"📢 <b>LinkedIn Publishing Notice (Admin Copy)</b>\n\n"
-                        f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}){pub_text}"
-                    )
+                        if self.admin_chat_id:
+                            self.send_admin_notification(
+                                f"🚨 <b>LinkedIn Publishing Failure Alert (Admin Copy)</b>\n\n"
+                                f"Founder approved Post <code>{result.post_id}</code> (Rev #{result.revision}), "
+                                f"but publishing to LinkedIn failed.\n\n"
+                                f"<b>Details:</b> {html.escape(result.message or 'LinkedIn API error')}"
+                            )
 
                 return {
                     "status": "approved",
                     "post_id": result.post_id,
                     "revision": result.revision,
-                    "published": result.published,
-                    "message": "Post approved successfully via Telegram.",
+                    "published": bool(result.published),
+                    "message": result.message or "Post approved successfully via Telegram.",
                 }
             except ApprovalAlreadyProcessedError as e:
                 if target_chat:

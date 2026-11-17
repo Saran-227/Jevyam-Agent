@@ -215,8 +215,8 @@ def test_production_configuration_settings():
 
 
 def test_safe_development_defaults():
-    """Verify that default settings without production injection maintain safe development defaults (mock & dry-run)."""
-    with patch("dotenv.load_dotenv"), patch.dict(os.environ, {}, clear=True):
+    """Verify that explicit DRY_RUN=true or LINKEDIN_MOCK_PUBLISHING=true enables safe mock mode."""
+    with patch("dotenv.load_dotenv"), patch.dict(os.environ, {"DRY_RUN": "true", "LINKEDIN_MOCK_PUBLISHING": "true"}, clear=True):
         import importlib
         import config.settings
         importlib.reload(config.settings)
@@ -521,6 +521,53 @@ def test_linkedin_failure_handling(phase3_env):
     post_after = repos.posts.get_by_post_id("JVY-PROD-001")
     assert post_after.status == PostStatus.FAILED
     assert post_after.linkedin_post_id is None
+
+
+def test_failed_publishing_alerts_founder_and_admin(phase3_env):
+    """When real LinkedIn publishing fails during approval, alerts are sent and it never reports published."""
+    tg_service = phase3_env["tg_service"]
+    mock_http = phase3_env["mock_http"]
+    mock_tg = phase3_env["mock_tg"]
+    repos = phase3_env["repos"]
+    token = phase3_env["approval"].approval_token
+    founder_id = phase3_env["founder_id"]
+    tg_service.admin_chat_id = "1293148688"
+    mock_tg.admin_chat_id = "1293148688"
+
+    # Simulate valid image download but LinkedIn 500 server error
+    mock_http.get.return_value = MagicMock(
+        status_code=200,
+        content=b"\x89PNG\r\n\x1a\nFakeImageBytes",
+        headers={"Content-Type": "image/png"},
+    )
+    mock_http.post.return_value = MagicMock(status_code=500, content=b'{"message":"Internal Server Error"}')
+
+    res = tg_service.handle_webhook_callback({
+        "update_id": 40005,
+        "callback_query": {
+            "id": "cb_fail_pub",
+            "from": {"id": int(founder_id)},
+            "message": {"message_id": 85, "chat": {"id": int(founder_id)}},
+            "data": f"approve:{token}",
+        },
+    })
+
+    assert res["status"] == "approved"
+    assert res["published"] is False
+
+    # Check that post is FAILED, not PUBLISHED
+    post = repos.posts.get_by_post_id("JVY-PROD-001")
+    assert post.status == PostStatus.FAILED
+    assert post.linkedin_post_id is None
+
+    # Check notification sent to Founder
+    founder_msgs = [m for m in mock_tg.sent_messages if str(m.get("chat_id")) == str(founder_id)]
+    assert any("Publishing Failed" in m["text"] for m in founder_msgs)
+    assert not any("publication simulated" in m["text"].lower() for m in founder_msgs)
+
+    # Check failure alert sent to Admin
+    admin_msgs = [m for m in mock_tg.sent_messages if str(m.get("chat_id")) == "1293148688"]
+    assert any("Publishing Failure Alert" in m["text"] for m in admin_msgs)
 
 
 def test_scheduler_generates_without_calling_publishing(tmp_path, founder_chat_id, fake_token_store):
