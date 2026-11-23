@@ -43,7 +43,7 @@ VALID_POST_TRANSITIONS: Dict[PostStatus, Set[PostStatus]] = {
     PostStatus.REGENERATING: {PostStatus.PENDING_APPROVAL},
     PostStatus.APPROVED: {PostStatus.PUBLISHED, PostStatus.FAILED},
     PostStatus.PUBLISHED: set(),  # Final terminal state
-    PostStatus.FAILED: {PostStatus.APPROVED, PostStatus.REGENERATING},  # Can retry publish or regenerate
+    PostStatus.FAILED: {PostStatus.APPROVED, PostStatus.REGENERATING, PostStatus.PUBLISHED},  # Can retry publish or regenerate
 }
 
 
