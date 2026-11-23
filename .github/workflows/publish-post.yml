@@ -1,0 +1,92 @@
+name: Publish or Retry Post to LinkedIn
+
+on:
+  workflow_dispatch:
+    inputs:
+      post_id:
+        description: 'Post ID to publish or retry (e.g. JVY-20261120-001)'
+        required: true
+        default: 'JVY-20261120-001'
+      dry_run:
+        description: 'Run in mock/dry-run mode (safe: no real LinkedIn publication)'
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: 'Bypass duplicate publication check'
+        required: false
+        type: boolean
+        default: false
+      notify_telegram:
+        description: 'Send completion notification to Telegram Founder and Admin'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-post-${{ inputs.post_id }}
+  cancel-in-progress: false
+
+jobs:
+  publish-approved-post:
+    name: Publish Approved Post to LinkedIn
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libfreetype6-dev libjpeg-dev zlib1g-dev fonts-dejavu-core
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Publish Post to LinkedIn
+        env:
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          LINKEDIN_MOCK_PUBLISHING: 'false'
+          AUTO_PUBLISH_ON_APPROVAL: 'true'
+          TIMEZONE: 'Asia/Kolkata'
+
+          # Cloud Persistent Storage (Supabase)
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_IMAGE_BUCKET: 'post-images'
+
+          # LinkedIn Production Configuration
+          LINKEDIN_ORGANIZATION_ID: ${{ secrets.LINKEDIN_ORGANIZATION_ID || '108376955' }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          LINKEDIN_API_VERSION: '202610'
+
+          # Telegram Delivery
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_FOUNDER_CHAT_ID: ${{ secrets.TELEGRAM_FOUNDER_CHAT_ID || '8164283098' }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || '1293148688' }}
+        run: |
+          FLAGS="--post-id ${{ inputs.post_id }}"
+          if [ "${{ inputs.force }}" = "true" ]; then
+            FLAGS="$FLAGS --force"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          if [ "${{ inputs.notify_telegram }}" = "true" ]; then
+            FLAGS="$FLAGS --notify-telegram"
+          fi
+
+          echo "Executing: python scripts/publish_post.py $FLAGS"
+          python scripts/publish_post.py $FLAGS
