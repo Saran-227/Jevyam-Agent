@@ -277,7 +277,7 @@ def draw_logo_mark(
     title_col = WHITE if on_dark else DEEP_NAVY
     sub_col = LIGHT_BLUE if on_dark else ROYAL_BLUE
     tx = x + mark_w + int(12 * scale)
-    draw.text((tx, y + int(2 * scale)), "JEVYAM", font=get_brand_font("poppins_bold", int(23 * scale)), fill=title_col)
+    draw.text((tx, y + int(2 * scale)), "JEEVYAM", font=get_brand_font("poppins_bold", int(23 * scale)), fill=title_col)
     draw.text((tx + 1, y + int(28 * scale)), "TECHNOLOGIES", font=get_brand_font("inter_semibold", int(10 * scale)), fill=sub_col)
     return tx + int(155 * scale)
 
@@ -753,7 +753,7 @@ def _render_visual_storytelling(
     # After Card (Royal Blue)
     rx = margin + col_w + 28
     draw.rounded_rectangle([rx, top_y, rx + col_w, bot_y], radius=22, fill=ROYAL_BLUE)
-    draw_label_badge(draw, rx + 28, top_y + 28, "AFTER · WITH JEVYAM", bg=DEEP_NAVY, fg=WHITE)
+    draw_label_badge(draw, rx + 28, top_y + 28, "AFTER · WITH JEEVYAM", bg=DEEP_NAVY, fg=WHITE)
     for i, stxt in enumerate(sols):
         sy = top_y + 100 + i * ((bot_y - top_y - 120) // 2)
         sf, sl = fit_headline(draw, stxt, "poppins_semibold", col_w - 56, 3, 24, 17)
@@ -910,7 +910,7 @@ def _render_magazine_quote(
     strip_y = h - 250
     draw.rounded_rectangle([margin, strip_y, w - margin, h - 76], radius=24, fill=WHITE, outline=BORDER_BLUE, width=2)
     draw_masked_photo(img, photo_path, (margin + 24, strip_y + 24, margin + 150, strip_y + 150), mask_type="circle", border_color=ROYAL_BLUE, border_width=3)
-    draw.text((margin + 178, strip_y + 48), "Jevyam Technologies Advisory", font=get_brand_font("poppins_bold", 22), fill=DEEP_NAVY)
+    draw.text((margin + 178, strip_y + 48), "Jeevyam Technologies Advisory", font=get_brand_font("poppins_bold", 22), fill=DEEP_NAVY)
     draw.text((margin + 178, strip_y + 84), f"{_service_tag(service_category)}  ·  {cta_text or 'jeevyamtechnologies.com'}", font=get_brand_font("inter_regular", 18), fill=ROYAL_BLUE)
     return img
 

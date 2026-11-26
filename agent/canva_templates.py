@@ -193,7 +193,7 @@ def _draw_official_logo(
     text_color = PURE_WHITE if is_dark else NAVY_DEEP
     sub_color = CYAN if is_dark else COBALT
     tx = x + mark_w + int(14 * scale)
-    draw.text((tx, y + int(2 * scale)), "JEVYAM", font=_get_font(int(26 * scale), bold=True), fill=text_color)
+    draw.text((tx, y + int(2 * scale)), "JEEVYAM", font=_get_font(int(26 * scale), bold=True), fill=text_color)
     draw.text((tx + 1, y + int(32 * scale)), "TECHNOLOGIES", font=_get_font(int(12 * scale), bold=True), fill=sub_color)
 
 
