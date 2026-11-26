@@ -60,6 +60,13 @@ class ImageGenerationDiagnostic(BaseModel):
     duration_ms: float = 0.0
 
 
+class CarouselSlideBrief(BaseModel):
+    """Structured content for a single slide in a LinkedIn Carousel creative."""
+
+    title: str = Field(..., description="Short slide title (3-7 words)")
+    body: str = Field(..., description="Concise slide insight (10-22 words)")
+
+
 class ImageBrief(BaseModel):
     """Structured design specification for post imagery."""
 
@@ -69,7 +76,7 @@ class ImageBrief(BaseModel):
     )
     style: str = Field(
         ...,
-        description="Specific design aesthetic (e.g. Minimalist tech vector, clean 2D system blueprint)",
+        description="Specific design aesthetic (e.g. Canva-style Editorial Insight, Clean Problem vs Solution)",
     )
     composition: str = Field(
         ...,
@@ -77,19 +84,51 @@ class ImageBrief(BaseModel):
     )
     color_direction: str = Field(
         ...,
-        description="Palette direction (e.g. neutral slate, deep navy, subtle technical blue accents)",
+        description="Palette direction (e.g. Deep Navy #0A1128, Crisp White #FFFFFF, Electric Cyan #00D2FF)",
     )
     text_on_image: str = Field(
         ...,
-        description="Concise 3-6 word anchor phrase or headline rendered on graphic, or 'None'",
+        description="Concise 3-7 word headline rendered on the graphic",
     )
     aspect_ratio: str = Field(
         default="1:1",
-        description="Aspect ratio for LinkedIn feed, default 1:1",
+        description="Aspect ratio for LinkedIn feed, default 1:1 (or 4:5 for carousel)",
     )
     layout: Optional[str] = Field(
         default=None,
-        description="Selected visual layout style (e.g. dark_cyber_tech, minimalist_editorial)",
+        description="Selected Canva template key: editorial_insight, problem_vs_solution, educational_infographic, service_spotlight, linkedin_carousel, technical_architecture",
+    )
+    headline: Optional[str] = Field(
+        default=None,
+        description="Main bold headline for the creative (4-8 words, crisp and scannable)",
+    )
+    subheadline: Optional[str] = Field(
+        default=None,
+        description="Short supporting statement under the headline (10-20 words)",
+    )
+    key_points: Optional[List[str]] = Field(
+        default=None,
+        description="3 to 4 short, specific takeaways or numbered steps directly reflecting this post (3-8 words each)",
+    )
+    problem_points: Optional[List[str]] = Field(
+        default=None,
+        description="For problem_vs_solution: 2-3 short operational pain points (4-8 words each)",
+    )
+    solution_points: Optional[List[str]] = Field(
+        default=None,
+        description="For problem_vs_solution: 2-3 short Jevyam-style solutions (4-8 words each)",
+    )
+    architecture_nodes: Optional[List[str]] = Field(
+        default=None,
+        description="For technical_architecture: 3-4 real connected system components (e.g. 'Web Storefront', 'API Layer', 'Inventory DB', 'ERP Sync')",
+    )
+    carousel_slides: Optional[List[CarouselSlideBrief]] = Field(
+        default=None,
+        description="For linkedin_carousel: 3-4 concise insight slides between cover and CTA slide",
+    )
+    cta_text: Optional[str] = Field(
+        default=None,
+        description="Short footer CTA label (e.g. 'jeevyamtechnologies.com')",
     )
 
 
@@ -375,7 +414,7 @@ class BrandedPillowImageProvider(BaseImageProvider):
             ImageStorageError: If persistent upload fails.
         """
         start_time = time.perf_counter()
-        chosen_layout = layout or self.default_layout or "auto"
+        chosen_layout = layout or getattr(brief, "layout", None) or self.default_layout or "auto"
         prev_layouts = previous_layouts or kwargs.get("previous_layouts")
 
         from agent.branded_renderer import detect_optimal_layout, render_branded_image
@@ -383,9 +422,11 @@ class BrandedPillowImageProvider(BaseImageProvider):
         temp_path: Optional[Path] = None
         gen_ok = False
         try:
-            # Extract headline candidate from brief text_on_image or topic
-            title_cand = None
-            if brief.text_on_image and brief.text_on_image.strip().lower() not in ("none", "null", ""):
+            # Extract headline candidate from brief headline, text_on_image, or topic
+            title_cand = getattr(brief, "headline", None)
+            if title_cand and str(title_cand).strip():
+                title_cand = str(title_cand).strip()
+            elif brief.text_on_image and brief.text_on_image.strip().lower() not in ("none", "null", ""):
                 title_cand = brief.text_on_image.strip()
             elif topic:
                 title_cand = topic
@@ -403,29 +444,48 @@ class BrandedPillowImageProvider(BaseImageProvider):
                         service_cat = p["name"]
                         break
 
-            actual_layout = detect_optimal_layout(
-                title=title_cand or "",
-                caption=caption or "",
-                visual_concept=brief.visual_concept,
-                preferred_layout=chosen_layout,
-                previous_layouts=prev_layouts,
-                revision=revision,
-                post_id=post_id,
-                service_category=service_cat,
-            )
+            from agent.branded_renderer import ALL_LAYOUTS
+            from agent.design_system import DESIGN_DIRECTIONS, select_alternating_v2_v3_layout
+            if layout and layout in ALL_LAYOUTS:
+                actual_layout = layout
+            elif chosen_layout in DESIGN_DIRECTIONS:
+                actual_layout = chosen_layout
+            else:
+                actual_layout = select_alternating_v2_v3_layout(
+                    service_category=service_cat,
+                    post_id=post_id,
+                    revision=revision,
+                    previous_layouts=prev_layouts,
+                )
             brief.layout = actual_layout
 
             logger.info(
                 f"Generating branded visual (layout='{actual_layout}', service='{service_cat}') for post '{post_id}' (rev #{revision})..."
             )
 
+            fmt_type = (
+                "landscape"
+                if actual_layout == "landscape_banner"
+                else (
+                    "portrait"
+                    if actual_layout in ("split_editorial", "multi_panel_agency", "timeline_blueprint", "checklist_card")
+                    else "square"
+                )
+            )
             png_bytes = render_branded_image(
                 title=title_cand,
+                subtitle=getattr(brief, "subheadline", None),
                 topic=topic,
                 caption=caption,
                 visual_concept=brief.visual_concept,
                 service_category=service_cat,
-                key_points=key_points,
+                key_points=key_points or getattr(brief, "key_points", None),
+                problem_points=getattr(brief, "problem_points", None),
+                solution_points=getattr(brief, "solution_points", None),
+                architecture_nodes=getattr(brief, "architecture_nodes", None),
+                carousel_slides=getattr(brief, "carousel_slides", None),
+                cta_text=getattr(brief, "cta_text", None),
+                format_type=fmt_type,
                 layout=actual_layout,
                 previous_layouts=prev_layouts,
                 revision=revision,

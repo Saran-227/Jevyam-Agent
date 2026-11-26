@@ -37,11 +37,13 @@ class TelegramService:
         provider: Optional[BaseTelegramProvider] = None,
         founder_chat_id: Optional[str] = None,
         admin_chat_id: Optional[str] = None,
+        member2_chat_id: Optional[str] = None,
     ):
         self.approval_service = approval_service or ApprovalService()
         self.provider = provider or get_telegram_provider()
         self._founder_chat_id = str(founder_chat_id).strip() if founder_chat_id is not None else None
         self._admin_chat_id = str(admin_chat_id).strip() if admin_chat_id is not None else None
+        self._member2_chat_id = str(member2_chat_id).strip() if member2_chat_id is not None else None
         self._processed_callback_ids: Set[str] = set()
         self._in_flight_tokens: Set[str] = set()
         self._lock = threading.Lock()
@@ -75,6 +77,26 @@ class TelegramService:
     @admin_chat_id.setter
     def admin_chat_id(self, val: Optional[str]) -> None:
         self._admin_chat_id = str(val).strip() if val is not None else None
+
+    @staticmethod
+    def _validate_chat_id(val: Optional[str]) -> str:
+        """Validate a Telegram chat ID (numeric or negative group ID, non-placeholder)."""
+        clean = str(val or "").strip()
+        if not clean or clean.startswith("your_"):
+            return ""
+        if clean.lstrip("-").isdigit():
+            return clean
+        return ""
+
+    @property
+    def member2_chat_id(self) -> str:
+        """Resolve validated Member 2 (Dr. Sanjeev Sharma) informational Chat ID."""
+        raw = self._member2_chat_id if self._member2_chat_id is not None else getattr(settings, "TELEGRAM_MEMBER2_CHAT_ID", "")
+        return self._validate_chat_id(raw)
+
+    @member2_chat_id.setter
+    def member2_chat_id(self, val: Optional[str]) -> None:
+        self._member2_chat_id = str(val).strip() if val is not None else None
 
     def is_authorized_founder(
         self,
@@ -197,6 +219,14 @@ class TelegramService:
             except Exception as admin_err:
                 logger.warning(f"Failed to dispatch post preview copy to admin: {admin_err}")
 
+        # Dispatch read-only post preview copy to Member 2 (NO approval buttons, no duplicates)
+        m2_id = self.member2_chat_id
+        if notify_admin and m2_id and m2_id not in (target_recipient, self.admin_chat_id):
+            try:
+                self.send_admin_post_preview(post_id=post_id, chat_id=m2_id)
+            except Exception as m2_err:
+                logger.warning(f"Failed to dispatch post preview copy to member 2: {m2_err}")
+
         return founder_res
 
     def send_admin_post_preview(
@@ -232,11 +262,21 @@ class TelegramService:
         text: str,
         chat_id: Optional[str] = None,
     ) -> Optional[TelegramMessageResponse]:
-        """Send an operational text notification to the Admin Telegram account."""
+        """Send an operational text notification to Admin and an informational copy to Member 2."""
         target_chat = str(chat_id or self.admin_chat_id).strip()
-        if not target_chat:
-            return None
-        return self.provider.send_text_message(chat_id=target_chat, text=text)
+        admin_res = None
+        if target_chat:
+            admin_res = self.provider.send_text_message(chat_id=target_chat, text=text)
+
+        # Forward informational copy to Member 2 when not targeting a specific chat
+        m2_id = self.member2_chat_id
+        if chat_id is None and m2_id and m2_id not in (target_chat, self.founder_chat_id):
+            try:
+                self.provider.send_text_message(chat_id=m2_id, text=text)
+            except Exception as m2_err:
+                logger.warning(f"Failed to dispatch informational notification to member 2: {m2_err}")
+
+        return admin_res
 
     def get_system_status(self) -> str:
         """Generate human-readable operational status report for Admin (/status command)."""

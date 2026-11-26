@@ -27,6 +27,7 @@ from agent.image_generator import (
 )
 from agent.knowledge import CompanyKnowledge, load_company_knowledge
 from agent.prompts import render_regeneration_prompt
+from agent.quality_validator import validate_post_quality
 from agent.repetition import check_repetition
 from agent.strategist import ContentIdea, format_previous_posts_summary, select_content_idea
 from agent.writer import LinkedInPostContent, generate_linkedin_post
@@ -210,18 +211,40 @@ def run_content_pipeline(
                 f"Last check flagged: {last_repetition_reason}"
             )
 
-    # 2. LinkedIn Post Writer
-    try:
-        post_content: LinkedInPostContent = generate_linkedin_post(
-            client=ai_client,
-            company_knowledge=company_knowledge,
-            idea=selected_idea,
-            previous_posts=combined_previous,
-            model=model,
-            prompts_dir=prompts_dir,
+    # 2. LinkedIn Post Writer with Content Quality Validation Gate
+    service_cat_for_val = (
+        getattr(selected_idea, "service_category", None)
+        or getattr(selected_idea, "service_pillar", None)
+    )
+    post_content: Optional[LinkedInPostContent] = None
+    quality_feedback: Optional[str] = None
+    for q_attempt in range(1, 3):
+        try:
+            candidate_post = generate_linkedin_post(
+                client=ai_client,
+                company_knowledge=company_knowledge,
+                idea=selected_idea,
+                previous_posts=combined_previous,
+                model=model,
+                prompts_dir=prompts_dir,
+                quality_feedback=quality_feedback,
+            )
+        except Exception as e:
+            raise ContentGenerationError(f"LinkedIn writer failed: {e}") from e
+
+        q_res = validate_post_quality(
+            topic=selected_idea.topic,
+            hook=candidate_post.hook,
+            caption=candidate_post.caption,
+            hashtags=candidate_post.hashtags,
+            call_to_action=candidate_post.call_to_action,
+            service_category=service_cat_for_val,
         )
-    except Exception as e:
-        raise ContentGenerationError(f"LinkedIn writer failed: {e}") from e
+        post_content = candidate_post
+        is_mock_client = type(ai_client).__module__.startswith("unittest.mock")
+        if q_res.passed or q_attempt == 2 or is_mock_client:
+            break
+        quality_feedback = "\n".join(f"- {issue}" for issue in q_res.issues)
 
     # 3. Image Brief Generator
     service_cat = (

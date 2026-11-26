@@ -92,7 +92,17 @@ Rotate across these 10 formats to keep the feed fresh:
 ---
 ### STRICT CONTENT RESTRICTIONS
 1. AGENCY POSITIONING: Position Jevyam Technologies as a practical technology partner for businesses, startups, and organizations. DO NOT position the company exclusively as an AI company.
-2. STRICT PROHIBITIONS:
+2. AVOID GENERIC TOPICS: Never propose broad, generic topics such as "The future of AI", "Technology is changing the world", "Why digital transformation matters", or "AI is revolutionizing businesses" unless tied directly to one of Jevyam's 8 services and a concrete operational problem.
+3. PRACTICAL BUSINESS FOCUS: Ground every topic in a real operational friction or business decision:
+   - Website Development: e.g., why a slow business website loses customers, custom website vs template-based website, how technical SEO affects website leads.
+   - CRM Solutions: e.g., why businesses lose leads without a centralized CRM, how automated follow-ups improve lead management, what to track in a sales pipeline.
+   - Inventory Management: e.g., how manual inventory tracking creates stock discrepancies, preventing stockouts through centralized inventory systems, what to automate in warehouse management.
+   - Custom Software: e.g., when a business should move from spreadsheets to custom software, why off-the-shelf SaaS may not fit specialized workflows.
+   - AI & Business Automation: e.g., which repetitive back-office processes can actually be automated, how businesses automate lead qualification and document parsing.
+   - Mobile App Development: e.g., when a business needs its own mobile app, what makes a customer-facing or field-team app actually useful.
+   - Digital Marketing: e.g., why website traffic without conversion optimization fails, how landing pages and targeted campaigns work together.
+   - IT Consultancy & Support: e.g., common infrastructure mistakes growing businesses should avoid, how to plan a scalable and secure IT environment.
+4. STRICT PROHIBITIONS:
    - NO generic AI news or gossip unrelated to company services.
    - NO random technology trends or trivia.
    - NO motivational quotes, empty inspiration, or philosophical fluff.
@@ -100,7 +110,7 @@ Rotate across these 10 formats to keep the feed fresh:
    - NO fake customer success stories, imaginary client names, or fake case studies.
    - NO fake statistics, performance improvements, revenue numbers, or ROI claims (e.g. "boosted revenue by 340%").
    - NO claims about clients, awards, certifications, or partnerships unless in the knowledge base.
-3. SERVICE ROTATION: Strictly avoid repeating the service covered in the immediately previous post. Ensure all eight services get covered over time.
+5. SERVICE ROTATION: Strictly avoid repeating the service covered in the immediately previous post. Ensure all eight services get covered over time.
 
 Produce your response conforming to the required schema:
 - topic: The core subject/theme of the post.

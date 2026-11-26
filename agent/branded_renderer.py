@@ -52,6 +52,26 @@ _ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 # Available 12 Diverse Layout Keys
 ALL_LAYOUTS: List[str] = [
+    "editorial_collage",
+    "human_centric_campaign",
+    "bold_typography_poster",
+    "split_editorial",
+    "business_metrics",
+    "creative_service_showcase",
+    "visual_storytelling",
+    "multi_panel_agency",
+    "diagonal_slice",
+    "magazine_quote",
+    "timeline_blueprint",
+    "floating_frame_hero",
+    "landscape_banner",
+    "checklist_card",
+    "editorial_insight",
+    "problem_vs_solution",
+    "educational_infographic",
+    "service_spotlight",
+    "linkedin_carousel",
+    "technical_architecture",
     "dark_cyber_tech",
     "minimalist_editorial",
     "split_screen_comparison",
@@ -1410,6 +1430,49 @@ def render_branded_image(
                     break
 
     chosen_tagline = format_service_tagline(s_cat)
+
+    # Dispatch to Design System 2.0 (v2 / v3) when selected
+    from agent.design_system import DESIGN_DIRECTIONS, render_design_v2
+    if layout in DESIGN_DIRECTIONS:
+        fmt = kwargs.get("format_type") or "square"
+        png_bytes, _ = render_design_v2(
+            direction=layout,
+            headline=clean_title,
+            subheadline=clean_subtitle,
+            key_points=key_points,
+            service_category=s_cat,
+            cta_text=kwargs.get("cta_text") or "jeevyamtechnologies.com",
+            format_type=fmt,
+            problem_points=kwargs.get("problem_points"),
+            solution_points=kwargs.get("solution_points"),
+        )
+        if output_path:
+            out_p = Path(output_path)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_bytes(png_bytes)
+        return png_bytes
+
+    # Dispatch to Canva-style templates when selected
+    from agent.canva_templates import CANVA_TEMPLATES, render_canva_template
+    if layout in CANVA_TEMPLATES:
+        png_bytes = render_canva_template(
+            template_id=layout,
+            headline=clean_title,
+            subheadline=clean_subtitle,
+            key_points=key_points,
+            problem_points=kwargs.get("problem_points"),
+            solution_points=kwargs.get("solution_points"),
+            architecture_nodes=kwargs.get("architecture_nodes"),
+            carousel_slides=kwargs.get("carousel_slides"),
+            service_category=s_cat,
+            cta_text=kwargs.get("cta_text"),
+            caption=caption,
+        )
+        if output_path:
+            out_p = Path(output_path)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_bytes(png_bytes)
+        return png_bytes
 
     chosen_layout = detect_optimal_layout(
         title=clean_title,

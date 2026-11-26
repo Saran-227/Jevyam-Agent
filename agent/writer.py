@@ -55,6 +55,7 @@ def generate_linkedin_post(
     previous_posts: Union[List[Any], str],
     model: Optional[str] = None,
     prompts_dir: Optional[Path] = None,
+    quality_feedback: Optional[str] = None,
 ) -> LinkedInPostContent:
     """Generate a LinkedIn post from strategic direction.
 
@@ -88,6 +89,8 @@ def generate_linkedin_post(
         content_format=content_format,
         prompts_dir=prompts_dir,
     )
+    if quality_feedback:
+        prompt += f"\n\n### QUALITY REVISION FEEDBACK (FIX THESE ISSUES):\n{quality_feedback}"
 
     return generate_structured_content(
         client=client,
