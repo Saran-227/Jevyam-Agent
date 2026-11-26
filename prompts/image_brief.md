@@ -50,6 +50,7 @@ Select exactly ONE `layout` from the 6 agency templates below based on the topic
    - `subheadline`: 10-18 words max.
    - `key_points` / `problem_points` / `solution_points`: 3-7 words per item so text fits cleanly with generous whitespace.
 3. **BRAND PALETTE**: Deep Navy (`#0A1128`), Clean Off-White (`#F8FAFC`), Cobalt Blue (`#0066FF`), Electric Cyan (`#00D2FF`).
-4. **NO AI CLICHE IMAGERY**: Never describe glowing brains, robots, futuristic neon matrices, or random floating icons.
+4. **CLEAN FOOTER URL**: Always set `cta_text` to `"jeevyamtechnologies.com"` (never include `/services/...html` paths on the image).
+5. **NO AI CLICHE IMAGERY**: Never describe glowing brains, robots, futuristic neon matrices, or random floating icons.
 
 Return the complete structured `ImageBrief` JSON.

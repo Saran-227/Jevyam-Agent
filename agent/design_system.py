@@ -1179,12 +1179,15 @@ def render_design_v2(
     verified_metrics: Optional[List[Tuple[str, str]]] = None,
 ) -> Tuple[bytes, DesignQualityReport]:
     """Render a Design System 2.0 creative and return (png_bytes, DesignQualityReport)."""
+    size = SQUARE_SIZE
     if format_type == "portrait":
         size = PORTRAIT_SIZE
     elif format_type == "landscape":
         size = LANDSCAPE_SIZE
-    else:
-        size = SQUARE_SIZE
+
+    # Always keep the poster footer clean as "jeevyamtechnologies.com" (never full .html paths)
+    if not cta_text or "/" in cta_text or ".html" in cta_text.lower() or "jeevyam" in cta_text.lower():
+        cta_text = "jeevyamtechnologies.com"
     pts = [p for p in (key_points or []) if p]
     primary_photo = resolve_service_photo(service_category, photo_path=photo_path, secondary=False)
     secondary_photo = resolve_service_photo(service_category, photo_path=None, secondary=True)

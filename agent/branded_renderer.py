@@ -1441,7 +1441,7 @@ def render_branded_image(
             subheadline=clean_subtitle,
             key_points=key_points,
             service_category=s_cat,
-            cta_text=kwargs.get("cta_text") or "jeevyamtechnologies.com",
+            cta_text="jeevyamtechnologies.com",
             format_type=fmt,
             problem_points=kwargs.get("problem_points"),
             solution_points=kwargs.get("solution_points"),
